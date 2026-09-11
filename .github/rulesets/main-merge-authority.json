@@ -1,0 +1,28 @@
+{
+  "name": "rw-sketchbook-merge-authority-v1",
+  "target": "branch",
+  "enforcement": "disabled",
+  "bypass_actors": [
+    {
+      "actor_type": "User",
+      "actor_id": 118467860,
+      "bypass_mode": "always"
+    }
+  ],
+  "conditions": {
+    "ref_name": {
+      "include": [
+        "~DEFAULT_BRANCH"
+      ],
+      "exclude": []
+    }
+  },
+  "rules": [
+    {
+      "type": "update",
+      "parameters": {
+        "update_allows_fetch_and_merge": false
+      }
+    }
+  ]
+}

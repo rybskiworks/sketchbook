@@ -7,6 +7,7 @@ Only Git-tracked Markdown and SVG files are checked by the command-line entrypoi
 
 from __future__ import annotations
 
+import math
 import re
 import subprocess
 import sys
@@ -67,9 +68,19 @@ def link_targets(text: str) -> list[str]:
     return targets + html.targets
 
 
-def check_markdown(path: Path, root: Path) -> list[str]:
+def symlink_in_path(path: Path, root: Path) -> bool:
+    return any(part.is_symlink() for part in (path, *path.parents)
+               if part == root or root in part.parents)
+
+
+def check_markdown(
+    path: Path, root: Path, tracked_paths: frozenset[Path] | None = None,
+) -> list[str]:
+    """Check targets; the CLI supplies its Git index inventory for portability."""
     errors = []
     root = root.resolve()
+    if symlink_in_path(path, root):
+        return ["documentation source must not be a symlink"]
     for target in link_targets(path.read_text(encoding="utf-8")):
         target = re.sub(r"\\([\\()\[\] ])", r"\1", target)
         try:
@@ -77,17 +88,33 @@ def check_markdown(path: Path, root: Path) -> list[str]:
             if url.scheme or url.netloc or not url.path:
                 continue
             name = unquote(url.path)
-            resolved = ((root / name.lstrip("/")) if name.startswith("/") else (path.parent / name)).resolve()
+            candidate = (root / name.lstrip("/")) if name.startswith("/") else (path.parent / name)
+            # Reject lexical symlink components before resolving them. This also
+            # avoids version-dependent Path.resolve() behavior for symlink loops.
+            if symlink_in_path(candidate, root):
+                errors.append(f"local target must not use a symlink: {target}")
+                continue
+            resolved = candidate.resolve()
             if not resolved.is_relative_to(root):
                 errors.append(f"link escapes the repository: {target}")
             elif not resolved.exists():
                 errors.append(f"missing local target: {target}")
-        except ValueError as exc:
+            elif tracked_paths is not None:
+                present = resolved in tracked_paths
+                if resolved.is_dir():
+                    present = any(item.is_relative_to(resolved) for item in tracked_paths)
+                if not present:
+                    errors.append(f"local target is not Git-tracked: {target}")
+        except (OSError, RuntimeError, ValueError) as exc:
             errors.append(f"invalid local target {target!r}: {exc}")
     return errors
 
 
 def check_svg(path: Path) -> list[str]:
+    # The CLI starts from a resolved repository root, but descendants can still
+    # be symlinks. Inspect lexical parents before opening or parsing the source.
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        return ["SVG source must not use a symlink"]
     text = path.read_text(encoding="utf-8")
     if re.search(r"<!\s*(DOCTYPE|ENTITY)\b", text, re.I):
         return ["SVG must not declare a DTD or entity"]
@@ -104,7 +131,7 @@ def check_svg(path: Path) -> list[str]:
             errors.append(f"SVG needs a nonempty {tag}")
     try:
         box = [float(v) for v in root.get("viewBox", "").replace(",", " ").split()]
-        if len(box) != 4 or not (box[2] > 0 and box[3] > 0):
+        if len(box) != 4 or not all(math.isfinite(v) for v in box) or not (box[2] > 0 and box[3] > 0):
             raise ValueError
     except ValueError:
         errors.append("SVG needs a valid viewBox with positive dimensions")
@@ -122,8 +149,11 @@ def check_svg(path: Path) -> list[str]:
             name = key.rsplit("}", 1)[-1].lower()
             if name.startswith("on") or name == "style":
                 errors.append(f"unexpected SVG attribute: {name}")
-            if name in {"href", "src"} and value and not value.startswith("#"):
-                errors.append(f"SVG resource must be internal: {value}")
+            if name in {"href", "src"} and value:
+                if not value.startswith("#"):
+                    errors.append(f"SVG resource must be internal: {value}")
+                elif value[1:] not in ids:
+                    errors.append(f"missing SVG definition: {value}")
             for ref in re.findall(r"url\(\s*['\"]?([^)'\"]+)['\"]?\s*\)", value, re.I):
                 ref = ref.strip()
                 if not ref.startswith("#"):
@@ -141,6 +171,7 @@ def main() -> int:
         print(f"Cannot list tracked files: {exc}", file=sys.stderr)
         return 2
     paths = [root / name for name in output.decode("utf-8").split("\0") if name]
+    tracked_paths = frozenset(paths)
     checked = 0
     failed = False
     for path in paths:
@@ -148,7 +179,7 @@ def main() -> int:
             continue
         checked += 1
         try:
-            errors = check_markdown(path, root) if path.suffix.lower() == ".md" else check_svg(path)
+            errors = check_markdown(path, root, tracked_paths) if path.suffix.lower() == ".md" else check_svg(path)
         except (OSError, UnicodeError) as exc:
             errors = [str(exc)]
         for error in errors:
