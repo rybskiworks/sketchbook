@@ -1,4 +1,45 @@
-# Welcome to your organization's demo respository
-This code repository (or "repo") is designed to demonstrate the best GitHub has to offer with the least amount of noise.
+<a href="https://github.com/rybskiworks">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/sketchbook-dark.svg">
+    <img src="assets/sketchbook-light.svg" width="1200" alt="sketchbook / rybskiworks. Ideas worth thinking through. Possibilities, not promises.">
+  </picture>
+</a>
 
-The repo includes an `index.html` file (so it can render a web page), two GitHub Actions workflows, and a CSS stylesheet dependency.
+<p align="center">
+  <a href="#on-the-desk">explorations</a> /
+  <a href="https://github.com/rybskiworks/sketchbook/issues">open questions</a> /
+  <a href="CONTRIBUTING.md">add a sketch</a>
+</p>
+
+**A shared notebook for rybskiworks.** Ideas, architectural sketches, research notes, and technical explorations that deserve a durable home before they deserve a project of their own.
+
+Explore alternatives, make assumptions explicit, and leave enough evidence for the next person to pick up the thread. The notes are exploratory, not accepted specifications.
+
+## on the desk
+
+| Exploration | The question |
+| :--- | :--- |
+| [Compartmentalized NixOS workstation](explorations/compartmentalized-nixos-architecture-seed.md) | Can isolated application environments still feel like one coherent desktop? |
+| [Shared Nix store fabric](explorations/shared-nix-store-microvm-fabric.md) | How much immutable state can a microVM fleet share without sharing authority or mutable state? |
+| [Workestrate testing philosophy](explorations/workestrate-testing-philosophy.md) | How do we explore a stateful system's failures instead of merely testing its happy paths? |
+
+The [reading guide](explorations/README.md) connects these threads. The [issue tracker](https://github.com/rybskiworks/sketchbook/issues) holds questions that have not become notes yet.
+
+## how ideas develop
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/thinking-loop-dark.svg">
+  <img src="assets/thinking-loop-light.svg" width="1200" alt="Ask a useful question. Explore alternatives. Challenge assumptions with evidence. Distill what survives, and revisit when the evidence changes.">
+</picture>
+
+A useful question is enough to start an issue. A useful investigation deserves a note. A decision or implementation belongs with the project that owns it, linked back here for its rationale.
+
+## leave a useful trail
+
+Keep one subject per note in `explorations/`, link related work, distinguish proposals from verified capabilities, and record what would change your mind. Small corrections and unfinished but well-framed ideas are welcome.
+
+Use the [exploration template](templates/exploration.md) for a starting point, not a form to fill mechanically. See [contributing](CONTRIBUTING.md) for the lightweight conventions and local checks.
+
+---
+
+<sub>Working notes, not marching orders.</sub>
