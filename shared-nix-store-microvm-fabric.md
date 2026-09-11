@@ -1,314 +1,324 @@
-# Shared Nix Store and MicroVM Density Fabric
+# Shared Nix Store Fabric for Dense MicroVM Fleets
 
-## Cachix, `local-overlay`, remote builders, storage CoW, KSM, and Workestrate integration
-
-> Status: architecture exploration / design note.
+> Status: design exploration
 >
-> This is intentionally not an ADR and not a statement that this is the purpose of Workestrate. It is an idealized systems design for a Nix-heavy microVM host, with a concrete section on what Workestrate and the current `rybskiworks` virtualization forks would need in order to orchestrate it cleanly.
+> Scope: Linux-first, Nix-heavy microVM hosts, with NixOS as the reference host and Workestrate as a potential orchestration layer.
 
-## 1. Core idea
+## 1. Purpose
 
-The target is a Linux, preferably NixOS, host that can run many microVMs while paying for common state as close to once as practical.
+A host running many development, agent, CI, or other short-lived microVMs tends to reproduce the same data repeatedly:
 
-The common state is split into several independent layers:
+- the same Nix store paths,
+- the same base userspace and toolchains,
+- the same VM root image blocks,
+- the same executable and library pages,
+- and large portions of identical guest memory.
 
-1. **Nix build/cache plane**: a dedicated infrastructure microVM acts as the trusted Nix builder and Cachix uploader/client.
-2. **Shared Nix store plane**: selected reusable closures are published into immutable local store generations that can be shared read-only by many VMs.
-3. **Per-VM Nix overlay**: every VM gets the shared store generation as its lower layer and its own writable upper layer through Nix's experimental `local-overlay` store.
-4. **VM image CoW**: root disks/images are cloned from common bases using reflinks, block-level CoW, shared OCI layers, or equivalent backend-native mechanisms.
-5. **RAM sharing**: start with KSM, Kernel Samepage Merging, for identical anonymous guest RAM pages. Treat true warm-template memory CoW as a separate, later VMM feature.
-6. **Centralized building**: the host and ordinary workload VMs can delegate expensive builds to the trusted builder VM instead of each maintaining an independent build environment.
+The objective of this design is to make each workload behave like an independent machine while allowing the physical host to share immutable state as aggressively as the isolation model permits.
 
-The important architectural rule is:
+The target is not a single shared writable environment. The target is a composition of independent sharing mechanisms:
 
-> **Share immutable state aggressively. Do not share one writable Nix store among independent workloads.**
+- a dedicated **Cachix VM** acting as the fleet's build/cache infrastructure VM, with a builder either colocated in it or delegated to a separate builder VM;
+- an immutable, locally published Nix store base shared by many workload VMs;
+- a private writable Nix overlay for each workload;
+- copy-on-write VM root/image storage;
+- shared file-backed memory where the VMM/filesystem path permits it;
+- KSM for identical anonymous guest memory;
+- and, eventually, true warm-template memory copy-on-write where a backend supports VM snapshot/fork semantics.
 
-A useful high-level picture is:
+The core principle is simple:
+
+> **Share immutable state, isolate mutable state.**
+
+The architecture should make that principle explicit at every layer rather than relying on convention.
+
+---
+
+## 2. Goals
+
+The system should:
+
+1. build common Nix derivations once and reuse them across host and guest workloads;
+2. avoid copying the same Nix closures into every VM;
+3. allow each VM to install/build additional Nix paths without affecting any other VM;
+4. preserve workload isolation even when most of the underlying bytes are physically shared;
+5. use storage CoW for VM images and roots wherever the backend supports it;
+6. use memory deduplication or memory CoW where safe and measurable;
+7. allow a dedicated infrastructure VM to centralize Cachix credentials and build capacity;
+8. work cleanly on NixOS while remaining expressible on generic Linux;
+9. expose capabilities through Workestrate without baking one VMM's implementation details into the workload model;
+10. support deterministic generation pinning, rollback, garbage collection, and testing.
+
+## 3. Non-goals
+
+This design does not require:
+
+- a shared writable `/nix/store` across workload VMs;
+- making the NixOS host boot from the same overlay store as workloads;
+- implementing VM memory forking before the storage architecture is useful;
+- forcing Cachix, the builder, publication, and local binary-cache roles into separate VMs;
+- making Workestrate itself a Nix cache server;
+- treating one virtualization backend as the permanent implementation.
+
+The architecture defines roles and invariants. Placement and backend implementation remain flexible.
+
+---
+
+## 4. Architecture overview
+
+A reference deployment has four logical planes:
+
+1. **build/cache plane**
+2. **store publication plane**
+3. **workload runtime plane**
+4. **host storage and memory-sharing plane**
 
 ```text
-                              remote durability
-                         +-----------------------+
-                         |        Cachix         |
-                         +-----------^-----------+
-                                     |
-                              push / substitute
-                                     |
-+--------------------------------------------------------------------------+
-| Linux / NixOS host                                                       |
-|                                                                          |
-|   +----------------------------+                                         |
-|   | builder + cache microVM    |                                         |
-|   |                            |                                         |
-|   | nix-daemon                 |                                         |
-|   | remote builder endpoint    |                                         |
-|   | Cachix uploader/client     |                                         |
-|   | private mutable build store|                                         |
-|   +-------------+--------------+                                         |
-|                 |                                                        |
-|                 | publish selected closures                              |
-|                 v                                                        |
-|   +---------------------------------------------------------------+      |
-|   | local store publication plane                                 |      |
-|   |                                                               |      |
-|   | mutable staging store                                         |      |
-|   |      |                                                        |      |
-|   |      +-- freeze --> immutable generation G41                   |      |
-|   |      +-- freeze --> immutable generation G42                   |      |
-|   |      +-- freeze --> immutable generation G43                   |      |
-|   +-----------------------------+---------------------------------+      |
-|                                 |                                        |
-|                           read-only export                                |
-|                                 |                                        |
-|           +---------------------+---------------------+                   |
-|           |                     |                     |                   |
-|     +-----v------+        +-----v------+        +-----v------+            |
-|     | workload A |        | workload B |        | workload C |            |
-|     |             |        |             |        |             |            |
-|     | lower: G42  |        | lower: G42  |        | lower: G42  |            |
-|     | upper: A    |        | upper: B    |        | upper: C    |            |
-|     | merged /nix|        | merged /nix|        | merged /nix|            |
-|     +-------------+        +-------------+        +-------------+            |
-|                                                                          |
-|   roots/images: shared base + storage CoW                                |
-|   RAM: KSM initially, template-memory CoW later                          |
-+--------------------------------------------------------------------------+
+                              remote cache
+                         +------------------+
+                         |      Cachix      |
+                         +--------^---------+
+                                  |
+                             push / pull
+                                  |
++------------------------------------------------------------------------+
+| NixOS / Linux host                                                     |
+|                                                                        |
+|   +---------------------------------------------------------------+    |
+|   | Cachix VM                                                     |    |
+|   |                                                               |    |
+|   | Cachix client/uploader                                        |    |
+|   | Nix daemon                                                    |    |
+|   | remote builder endpoint, optional colocated builder           |    |
+|   | durable build store                                           |    |
+|   +-----------------------------+---------------------------------+    |
+|                                 |                                      |
+|                                 | publish selected closures             |
+|                                 v                                      |
+|   +---------------------------------------------------------------+    |
+|   | store publication plane                                       |    |
+|   |                                                               |    |
+|   | mutable staging store                                         |    |
+|   |       |                                                       |    |
+|   |       +--> immutable generation G42                           |    |
+|   |       +--> immutable generation G43                           |    |
+|   +-----------------------------+---------------------------------+    |
+|                                 |                                      |
+|                           read-only attachment                          |
+|                +----------------+----------------+                     |
+|                |                |                |                     |
+|          +-----v------+   +-----v------+   +-----v------+              |
+|          | workload A |   | workload B |   | workload C |              |
+|          |            |   |            |   |            |              |
+|          | lower: G42 |   | lower: G42 |   | lower: G42 |              |
+|          | upper: A   |   | upper: B   |   | upper: C   |              |
+|          +------------+   +------------+   +------------+              |
+|                                                                        |
+|   VM roots/images: shared base + storage CoW                           |
+|   guest memory: KSM initially, template-memory CoW later               |
++------------------------------------------------------------------------+
 ```
 
-## 2. First correction: "Cachix VM" is not literally a Cachix server
+The planes are logical. A small deployment may place the builder, Cachix client, local cache endpoint, and publisher-related tooling in one infrastructure VM. A larger deployment may split them.
 
-Cachix is primarily a hosted binary cache service. A machine runs the Cachix client/daemon or post-build hooks and pushes store outputs to the hosted cache.
+The correctness model must not depend on that placement.
 
-So the infrastructure VM described here is better thought of as a **Nix builder/cache gateway**:
+---
 
-- Nix remote builder,
-- Cachix uploader/client,
-- trusted holder of cache write credentials,
-- optional local cache server,
-- optional publisher/stager for the shared local store.
+## 5. The Cachix VM
 
-If a completely local binary-cache HTTP endpoint is wanted, that is another component. Harmonia is a good fit for serving an existing Nix store. Attic is another possible architecture, but it is not required for the shared lower-store design.
+The Cachix VM is the fleet's trusted Nix build/cache infrastructure workload.
 
-Cachix and the shared local store solve different problems:
+Its responsibilities may include:
 
-- **Cachix**: durable, off-host, network-visible distribution of Nix outputs.
-- **shared local store generation**: avoid downloading/copying the same already-present closure into every VM on one physical host.
+- running `nix-daemon`;
+- exposing a Nix remote-builder endpoint;
+- building derivations requested by the host and workload VMs;
+- consuming upstream substituters such as `cache.nixos.org`;
+- pushing selected build outputs to Cachix;
+- holding Cachix write credentials;
+- maintaining a durable build store;
+- optionally serving a local binary cache;
+- staging or initiating publication of selected closures into the shared local store.
 
-The ideal system uses both.
-
-## 3. Second correction: KSM, not KMS
-
-The Linux RAM deduplication primitive is **KSM, Kernel Samepage Merging**.
-
-KSM scans anonymous memory regions that a userspace process has marked with `MADV_MERGEABLE`, detects identical pages, replaces them with a shared write-protected page, and splits the page again when one participant writes.
-
-That is useful for many near-identical VMs, but it is not the same thing as starting N VMs from one warm parent memory snapshot.
-
-### KSM
+The builder does not have to be colocated. Two valid arrangements are:
 
 ```text
-VM A boots independently ----+
-VM B boots independently ----+--> ksmd later finds identical pages
-VM C boots independently ----+             |
-                                            v
-                                    shared physical page
-                                            |
-                                      write -> copy
+Cachix VM
+  +-- builder
+  +-- uploader
+  +-- local cache
 ```
 
-### True template-memory CoW
+or:
 
 ```text
-                warm parent VM snapshot
-                         |
-              +----------+----------+
-              |          |          |
-            child A    child B    child C
-              |          |          |
-          private-on-write mappings from the start
-```
-
-KSM is the realistic first step for the libkrun/Microsandbox stack. True memory CoW needs pause/snapshot/restore or explicit fork semantics in the VMM.
-
-Also note that KSM sharing is not permanent across swap. Linux documents that when merged pages are swapped out and later swapped back in, the sharing is broken until `ksmd` rediscovers and merges them again. This matters if the host uses aggressive swap or zram.
-
-## 4. There are several independent CoW/sharing layers
-
-These mechanisms should not be conflated:
-
-| Layer | Likely mechanism | Shared object | Divergence behavior |
-| --- | --- | --- | --- |
-| Nix store | Nix `local-overlay` + Linux OverlayFS | immutable store generation | new guest paths land in private upper |
-| VM root/image | reflink, shared OCI layers, qcow2 backing, snapshot | filesystem/block base | changed blocks become private |
-| Read-only file pages | host page cache / optionally virtio-fs DAX | executable/library/file pages | normally immutable/read-only |
-| Guest anonymous RAM | KSM | identical anonymous pages | private page on write |
-| Warm guest memory | snapshot/fork + private mapping | parent VM RAM image | private page on write |
-
-The density target comes from composing them.
-
-## 5. Why the shared Nix store should be immutable generations
-
-Nix 2.34.9 documents the experimental `local-overlay` store.
-
-The lower store is logically immutable from the overlay consumer's point of view. Nix allows the lower store to grow in some abstract cases, but Linux OverlayFS imposes the stronger restriction that the lower store directory **cannot change at all while it is mounted as a lower layer**.
-
-That immediately rules out the naive design:
-
-```text
-builder continuously mutates one live /nix/store
-             |
-             +--> VM A OverlayFS lowerdir
-             +--> VM B OverlayFS lowerdir
-             +--> VM C OverlayFS lowerdir
-```
-
-Even adding new paths changes the lower directory.
-
-The correct primitive is therefore a **published store generation**:
-
-```text
-mutable store / staging area
+Cachix VM
+  +-- uploader/cache gateway
+          ^
           |
-          | freeze / publish
-          v
-     immutable G42
-       /    |    \
-      /     |     \
-    VM A   VM B   VM C
-
-builder and publisher continue preparing G43 elsewhere
+   separate builder VM
 ```
 
-When G43 is ready:
+The first is simpler. The second may be useful when build workloads need different resource, trust, or nested-virtualization policy.
 
-- new workloads can use G43,
-- existing G42 workloads remain on G42,
-- G42 is retained until no workload has a lease/reference to it,
-- no running guest sees its lower store mutate underneath it.
+### 5.1 Why centralize building
 
-This is a much better lifecycle model anyway because it gives deterministic planning, rollbacks, auditability, and safe GC.
+Without a shared builder, every VM can end up paying for:
 
-## 6. Where should the shared store physically live?
+- duplicate compiler/toolchain installations;
+- duplicate build inputs;
+- duplicate CPU work;
+- duplicate build caches;
+- duplicate network downloads.
 
-This is the most important topology distinction.
+Nix already supports distributed/remote builds. The architecture should use that instead of inventing another build protocol. See [Nix distributed builds][nix-distributed-builds].
 
-If the only copy of the store physically lives inside the builder/cache VM, other VMs cannot use it as a low-overhead local OverlayFS lower layer without introducing another network/filesystem export layer.
+### 5.2 Host use of the builder
 
-So the most useful design is:
+The NixOS host can also delegate builds to the Cachix VM or its builder.
 
-- **builder/cache VM owns build authority**, credentials, and mutable build activity,
-- **host owns the published immutable store generations** that are directly attachable to workload VMs.
+A reasonable host policy is:
 
-There are two reasonable publication strategies.
+```nix
+{
+  nix.distributedBuilds = true;
 
-### 6.1 Isolation-first topology
+  nix.settings = {
+    builders-use-substitutes = true;
+    # Optional if local host builds should be avoided entirely:
+    # max-jobs = 0;
+  };
 
-The builder has a private mutable Nix store. It publishes selected closures to a separate host-owned local store.
+  nix.buildMachines = [
+    {
+      hostName = "nix-builder";
+      protocol = "ssh-ng";
+      system = "x86_64-linux";
+      maxJobs = 16;
+      supportedFeatures = [ "big-parallel" ];
+    }
+  ];
+}
+```
+
+The host should still keep its normal local `/nix/store` for boot, recovery, and NixOS generation management. There is little benefit in making the host itself depend on the guest overlay design in the first implementation.
+
+---
+
+## 6. Shared Nix store model
+
+Nix's experimental [`local-overlay` store][nix-local-overlay] is a natural fit for a fleet of VMs that need a common immutable base plus per-VM writable state.
+
+A local overlay store combines:
+
+- a lower Nix store;
+- an OverlayFS upper layer;
+- an OverlayFS work directory;
+- a merged store view.
+
+Nix does not create the OverlayFS mount itself, but it verifies that the expected lower and upper are mounted correctly by default. The documented store URI has the form:
 
 ```text
-builder VM private /nix/store
-          |
-          | nix copy selected closures
-          v
-host publication staging store
-          |
-          | freeze
-          v
-read-only generation G42
+local-overlay://?root=<merged-root>&lower-store=<lower-store-root>&upper-layer=<upper-dir>
 ```
 
-Pros:
+The Linux [OverlayFS documentation][overlayfs] requires the work directory to live on the same filesystem as the upper layer.
 
-- the builder never receives general write access to the host's publication tree,
-- publication is an explicit policy boundary,
-- only useful closures need to become fleet-wide shared state,
-- easier to validate/sign/test before promotion,
-- easiest design to secure first.
+### 6.1 Per-workload layout
 
-Cost:
-
-- one extra local copy exists between builder-private storage and the publication store.
-
-For dozens of VMs that is still dramatically better than dozens of duplicated stores.
-
-### 6.2 Density-first topology
-
-A later optimization is to expose a dedicated host filesystem/subvolume writable to the trusted builder VM. The builder uses that as a publication/staging store and the host creates immutable snapshots directly from it.
-
-On a Btrfs host:
+Conceptually, every VM receives:
 
 ```text
-host Btrfs subvolume: /var/lib/.../nix-publisher/live
-                  ^
-                  |
-          writable to trusted builder only
-                  |
-             builder VM
+read-only lower generation:
+  /run/workestrate/nix-lower/nix/store
 
-host snapshots:
-  live -> generations/G42 (ro)
-  live -> generations/G43 (ro)
+private writable state:
+  /var/lib/workestrate/nix-overlay/upper
+  /var/lib/workestrate/nix-overlay/work
+  /var/lib/workestrate/nix-overlay/state
+
+merged logical store:
+  /nix/store
 ```
 
-Pros:
+The mount is equivalent to:
 
-- avoids the builder-private -> publication-store copy,
-- Btrfs snapshots are naturally CoW,
-- publication is nearly instantaneous regardless of logical store size.
+```bash
+mount -t overlay overlay \
+  -o lowerdir=/run/workestrate/nix-lower/nix/store \
+  -o upperdir=/var/lib/workestrate/nix-overlay/upper \
+  -o workdir=/var/lib/workestrate/nix-overlay/work \
+  /nix/store
+```
 
-Cons:
+The VM can then build, copy, or substitute additional paths into its own upper layer while reading the shared lower paths directly.
 
-- the trusted infrastructure VM now has a direct writable host-backed path,
-- the host and guest must coordinate a coherent snapshot boundary,
-- the VMM process must be strongly contained to only that path.
+### 6.2 Required invariants
 
-I would implement isolation-first and benchmark before optimizing this.
+The runtime must guarantee:
 
-## 7. Host filesystem
+- the lower store is read-only at the host/VMM boundary;
+- a workload cannot remount the host export writable;
+- every workload gets a distinct upper layer;
+- every workload gets distinct upper-layer Nix state;
+- lower generations are not modified while mounted by workloads;
+- Workestrate pins the exact lower generation for the workload lifetime;
+- workload destruction can delete an ephemeral upper without affecting any other workload;
+- lower-generation GC is a host control-plane operation, never a guest operation.
 
-For a NixOS/Linux reference implementation, **Btrfs** is an attractive default for Workestrate's state/published-store area because:
+---
 
-- read-only subvolume snapshots naturally model immutable generations,
-- reflink/CoW semantics are native,
-- generation publication can be cheap,
-- the same filesystem can also support CoW clones for suitable VM disk artifacts.
+## 7. Immutable store generations
 
-XFS with reflink is also viable for many of the same storage-density goals, but generation snapshots are less directly represented as subvolumes.
+The shared lower should be modeled as an immutable **store generation**, not as the Cachix VM's live mutable `/nix/store`.
 
-Another direction is to materialize immutable lower stores as:
-
-- EROFS images,
-- SquashFS images,
-- read-only ext4 images.
-
-Those can be attractive for portability and hard immutability, but they require image generation. A read-only Btrfs snapshot plus virtio-fs is the simplest Linux-first prototype.
-
-## 8. What a store generation contains
-
-A generation is not merely a random directory of `/nix/store` objects.
-
-The lower store has filesystem content plus Nix metadata. The generation should represent a coherent local store root, for example:
+This provides a stable filesystem and metadata view for every running workload and creates a clean lifecycle boundary.
 
 ```text
-/var/lib/workestrate/store-publisher/live/
-  nix/
-    store/
-    var/nix/
-      db/
-      ...
+publication staging store
+        |
+        | publish/freeze
+        v
+ immutable generation G42
+    /        |        \
+   /         |         \
+VM A       VM B       VM C
+
+staging store continues toward G43 independently
 ```
 
-A publisher can maintain this using a separate local Nix store root and `nix copy` selected closures into it.
+A new generation never mutates the previous one.
 
-Then snapshot/freeze the entire coherent store root.
+### 7.1 Generation contents
 
-Each generation should have a manifest, conceptually:
+The generation should represent a coherent Nix store root, including the data required by the selected lower-store implementation, rather than only copying arbitrary `/nix/store` paths without metadata.
+
+A physical layout might be:
+
+```text
+/var/lib/workestrate/nix-publisher/
+  live/
+    nix/
+      store/
+      var/nix/
+  generations/
+    G42/
+    G43/
+```
+
+The exact physical layout is implementation-specific. The workload-facing logical store remains `/nix/store`.
+
+### 7.2 Generation manifest
+
+Each generation should have a machine-readable manifest:
 
 ```toml
 schema = 1
 id = "sha256-..."
 system = "x86_64-linux"
 nix_version = "2.34.9"
-created_at = "2026-09-10T00:00:00Z"
+created_at = "2026-09-11T00:00:00Z"
 
 [top_level]
 paths = [
@@ -318,453 +328,355 @@ paths = [
 ]
 
 [store]
-logical_store = "/nix/store"
-physical_root = "/var/lib/workestrate/store-publisher/generations/<id>"
-
-[cache]
-cachix = "..."
+logical = "/nix/store"
 ```
 
-This manifest becomes useful for:
+The manifest gives Workestrate a stable object to pin in:
 
-- workload plans,
-- generation leases,
-- GC,
-- rollback,
-- reproducibility,
-- explaining why a store path exists,
-- checkpoint compatibility,
-- measuring physical/logical sharing,
-- grouping VMs into compatible warm-template families later.
+- workload plans;
+- checkpoints;
+- snapshots;
+- rollback state;
+- GC leases;
+- metrics;
+- debugging output.
 
-### What should be published?
+### 7.3 Generation leases
 
-Not necessarily the builder's entire store.
-
-Good shared-generation candidates are closures with high reuse:
-
-- base Nix/NixOS userspace,
-- Workestrate runtime,
-- agent runtimes,
-- common compilers/toolchains,
-- language runtimes,
-- common CLI/dev tools,
-- browser/runtime dependencies,
-- common project toolchains,
-- dependencies known to recur across a fleet.
-
-Highly specific temporary derivations can remain in a VM upper and/or Cachix until there is evidence they deserve promotion.
-
-## 9. Guest store layout with Nix `local-overlay`
-
-Each consumer VM receives:
-
-1. a pinned read-only generation,
-2. a private writable upper,
-3. a private Nix state database for upper-layer metadata,
-4. an OverlayFS workdir on the same filesystem as the upper.
-
-Conceptually:
+A simple lifecycle is:
 
 ```text
-read-only lower:
-  /run/workestrate/nix-lower/nix/store
-
-private writable VM state:
-  /var/lib/workestrate/nix-upper/store
-  /var/lib/workestrate/nix-upper/work
-  /var/lib/workestrate/nix-upper/state
-
-merged:
-  /nix/store
+G41  refs=0   old
+G42  refs=17  current
+G43  refs=0   publishing
 ```
 
-The guest mounts:
+Rules:
 
-```bash
-mount -t overlay overlay \
-  -o lowerdir=/run/workestrate/nix-lower/nix/store \
-  -o upperdir=/var/lib/workestrate/nix-upper/store \
-  -o workdir=/var/lib/workestrate/nix-upper/work \
-  /nix/store
-```
+1. publication creates a new immutable object;
+2. `current` is a pointer/default, not a mutable generation;
+3. launching a workload takes a lease on a generation;
+4. a running workload never silently moves to another generation;
+5. a generation with live leases cannot be deleted;
+6. destroying a workload releases its lease;
+7. old unleased generations are eligible for GC.
 
-And Nix is configured using the experimental `local-overlay` store, with a shape like:
+This is also compatible with future checkpoint/fork systems: a checkpoint records the exact store generation it depends on.
+
+---
+
+## 8. Publication strategies
+
+Two publication models are useful.
+
+### 8.1 Isolation-first publication
+
+The Cachix VM or builder keeps a private mutable build store. Selected closures are copied into a host-owned publication store, then frozen into a generation.
 
 ```text
-local-overlay://?root=<merged-root>&lower-store=<lower-store-root>&upper-layer=<upper-dir>
+Cachix VM / builder store
+          |
+          | nix copy selected closure
+          v
+host publication staging store
+          |
+          | snapshot/freeze
+          v
+immutable generation
 ```
 
-Nix should keep `check-mount = true` unless there is a very specific reason not to.
+Advantages:
 
-### Invariants
+- builder compromise does not imply arbitrary host publication-store writes;
+- promotion is explicit;
+- only high-value reusable closures are shared fleet-wide;
+- validation and signing can occur at the publication boundary;
+- the builder VM can use ordinary private VM storage.
 
-- lower generation is immutable for the full VM lifetime,
-- lower is exported read-only by the host/VMM, not merely mounted `ro` by guest convention,
-- every VM gets a separate upper,
-- one VM cannot see another VM's upper,
-- upper and OverlayFS workdir satisfy the same-filesystem constraint,
-- host publisher owns lower-generation GC,
-- guest GC only deals with guest upper semantics,
-- new published generations never silently replace a running VM's lower.
+The cost is one additional local copy between the builder store and publication staging store.
 
-## 10. Current `local-overlay` GC caveat
+### 8.2 Host-backed publication store
 
-As of September 2026, Nix issue `NixOS/nix#16269` is still open.
-
-The bug affects finite-limit GC paths for `local-overlay`, including automatic `min-free` / `max-free` behavior. Lower-only paths can leave `bytesFreed` effectively wrong/uninitialized, causing collection to stop early without reclaiming the intended upper-store garbage.
-
-For this architecture, do not casually enable automatic space-triggered GC and assume it bounds a persistent overlay upper.
-
-For the first implementation:
-
-- pin a known Nix version,
-- carry the small fix if upstream has not released it,
-- add a regression test specifically for finite-limit/automatic GC,
-- implement and test the `remount-hook` behavior Nix documents for overlay deletion/remount cases,
-- for ephemeral agents, deleting the entire private upper on VM destruction is a clean lifecycle anyway.
-
-This is exactly the kind of low-level behavior Workestrate's planned black-box/property-based runtime tests should hammer continuously.
-
-## 11. Build and substitution flow
-
-A normal agent/workload can resolve a needed store path through a hierarchy:
+A more aggressive design gives the trusted Cachix VM or builder writable access to a dedicated host-backed store/subvolume and lets the host snapshot it directly.
 
 ```text
-1. already present in pinned lower generation
-              |
-              v miss
-2. local host binary-cache endpoint, optional
-              |
-              v miss
-3. Cachix / cache.nixos.org substituters
-              |
-              v miss
-4. trusted remote builder VM
-              |
-              v
-5. result copied into workload's private upper
+host-backed mutable publication subvolume
+             ^
+             |
+      trusted Cachix VM
+
+host:
+  live -> read-only G42
+  live -> read-only G43
 ```
 
-The trusted builder can then push reusable successful outputs to Cachix, and selected closures can be promoted into a future shared generation.
+This removes the builder-to-publication copy and is attractive on Btrfs, but it increases the trust placed in the infrastructure VM and requires careful snapshot coordination.
 
-### Ordinary agent policy
+The first implementation should prefer the isolation-first path unless benchmarks demonstrate that publication copying is a meaningful bottleneck.
 
-- no Cachix write credential,
-- preferably no unrestricted local builds,
-- remote builder allowed,
-- private upper usually ephemeral,
-- persistent project workspace is separate from Nix store lifetime.
+---
 
-### Development VM policy
+## 9. Host filesystem and physical storage
 
-- same shared lower,
-- upper may be persistent,
-- local builds may be allowed,
-- remote builder still preferred for expensive/common derivations,
-- promotion of outputs to fleet-wide state is explicit.
+For the NixOS reference implementation, Btrfs is a strong candidate for Workestrate's VM/state storage area.
 
-### Builder policy
+Relevant properties include:
 
-- infrastructure-trusted,
-- owns Cachix write authority,
-- can build for host and guests,
-- can use upstream substituters itself,
-- `builders-use-substitutes = true` so clients do not need to upload every build input manually.
+- copy-on-write data and metadata;
+- cheap subvolume snapshots;
+- read-only snapshots;
+- reflink-style sharing between logically independent files;
+- a natural representation for immutable store generations.
 
-## 12. Should the NixOS host also build through this VM?
+See the [Btrfs subvolume documentation][btrfs-subvolume].
 
-Yes, that makes sense.
+XFS with reflink support is also viable for root/image cloning and shared extents. The architecture should not require Btrfs globally.
 
-The host can keep its normal boot-critical `/nix/store` while delegating builds to the builder VM through Nix's remote/distributed builder mechanism.
+Immutable store generations could also eventually be materialized as read-only filesystem images such as EROFS or SquashFS. That is attractive when portability and hard immutability matter more than publication latency.
 
-Conceptually on NixOS:
+---
 
-```nix
-{
-  nix.distributedBuilds = true;
+## 10. Root image copy-on-write
 
-  nix.settings = {
-    builders-use-substitutes = true;
-    max-jobs = 0; # optional: force normal host builds away from the host
-  };
+The Nix overlay does not replace VM root-image sharing. The two mechanisms solve different duplication problems.
 
-  nix.buildMachines = [
-    {
-      hostName = "workestrate-builder";
-      sshUser = "nixbuilder";
-      sshKey = "/run/secrets/workestrate-builder-key";
-      protocol = "ssh-ng";
-      system = "x86_64-linux";
-      maxJobs = 16;
-      supportedFeatures = [ "big-parallel" ];
-      # Add "kvm" only when nested virtualization is intentionally supported.
-    }
-  ];
-}
-```
-
-This provides most of the operational benefit without making the running host dependent on an experimental overlay store.
-
-### Should the host itself use the same `local-overlay` store?
-
-Possible, but not a first milestone.
-
-It introduces unnecessary coupling into:
-
-- NixOS boot and recovery,
-- host generation switching,
-- `nixos-rebuild`,
-- host GC,
-- failure recovery when the publisher/builder is unavailable.
-
-There is only one host but potentially tens or hundreds of workload VMs, so the multiplicative win is in the workload fleet.
-
-The ideal first design is:
-
-- host normal local store,
-- host remote-builds through builder VM when desired,
-- host also consumes Cachix,
-- workload VMs receive shared immutable lower generations.
-
-## 13. Optional local HTTP binary cache
-
-Even with Cachix, it can be wasteful to send a miss out to the network and back when the same artifact already exists locally but is not in the pinned lower generation.
-
-An optional host-local or infrastructure-local binary-cache endpoint can sit before Cachix in substituter priority.
-
-Harmonia is attractive because it can serve a Nix store directly.
-
-This is an optimization, not a prerequisite. The most important local fast path remains the shared lower generation itself.
-
-## 14. Root disk and image CoW
-
-Nix-store sharing only fixes one source of duplication. VM root filesystems should also share storage.
-
-Current Microsandbox already has useful mechanisms:
-
-- shared content-addressed read-only OCI layers,
-- per-sandbox writable upper layers,
-- flat OCI root disks,
-- `clone=auto`, which prefers native CoW cloning and falls back to copying,
-- `clone=reflink`, which requires native clone support,
-- native `FICLONE` on Linux for flat root-disk cloning.
-
-So the first Workestrate implementation should consume those primitives rather than inventing another root-disk layer immediately.
-
-A more optimized Nix-oriented guest image can eventually become fairly small:
+A workload ideally gets:
 
 ```text
-root/image base:
-  init / systemd or minimal init
-  mount tooling
-  Nix client/daemon plumbing
-  certs
-  Workestrate guest glue
-  SSH/agentd/control-plane glue if needed
-
-shared Nix generation:
-  large reusable packages/toolchains/runtimes
-
-private Nix upper:
-  workload-specific additions
+base VM image
+     |
+     +--> CoW clone A
+     +--> CoW clone B
+     +--> CoW clone C
 ```
 
-This is much better than baking the same large Nix-built agent closure into every VM image.
+The VM root then contains only the minimal operating environment and private changes, while large reusable Nix closures live in the shared lower store.
 
-## 15. KSM implementation path
+Current Microsandbox already has useful storage primitives in this direction, including image-layer sharing and reflink-based cloning paths. Workestrate should expose the semantic requirement, such as `reflink-preferred` or `copy-on-write-required`, and let the backend satisfy it using its native mechanism.
 
-KSM requires cooperation at two levels.
+This makes it possible to combine:
 
-### Host
+```text
+shared Nix bytes
++ shared root/image blocks
++ private changed root blocks
++ private Nix upper
+```
 
-- Linux kernel with `CONFIG_KSM=y`,
-- `ksmd` enabled/tuned via `/sys/kernel/mm/ksm/*`,
-- metrics and CPU-cost monitoring.
+rather than choosing only one sharing layer.
 
-### VMM
+---
 
-The VMM must call:
+## 11. Memory sharing
+
+Storage sharing does not automatically produce RAM sharing. Memory should be treated as its own capability domain.
+
+### 11.1 File-backed sharing
+
+A large shared read-only Nix tree creates opportunities for host page-cache reuse, and possibly for more direct sharing through virtio-fs/DAX depending on backend implementation.
+
+Upstream libkrun exposes virtio-fs APIs with configurable DAX window sizing. A large immutable Nix lower store is a good benchmark target for determining whether DAX materially reduces duplicate guest file-backed memory.
+
+This should be measured rather than assumed.
+
+### 11.2 KSM
+
+Linux [Kernel Samepage Merging][linux-ksm] deduplicates identical anonymous memory pages that userspace marks with `MADV_MERGEABLE`.
+
+For many nearly identical VMs this can recover memory occupied by identical guest RAM after boot.
+
+The VMM must participate. Enabling KSM on the host is not sufficient if guest RAM mappings are never marked mergeable.
+
+The relevant VMM operation is conceptually:
 
 ```c
-madvise(addr, length, MADV_MERGEABLE)
+madvise(addr, len, MADV_MERGEABLE);
 ```
 
-on eligible anonymous guest RAM mappings.
-
-That means simply enabling KSM globally on the host is not enough if libkrun never marks guest RAM mergeable.
-
-The desired Workestrate-level policy should look conceptually like:
+KSM should be an explicit workload/backend policy:
 
 ```toml
 [vm.memory]
-sharing = "ksm" # none | ksm | future template-cow
-trust_domain = "local-agents"
+sharing = "ksm"
+trust_domain = "local-agent-fleet"
 ```
 
-KSM should not silently be enabled for arbitrary mutually untrusted tenants. Memory deduplication has historically created side-channel concerns. For Workestrate's local single-owner agent fleets, it is much more reasonable, but it should still be an explicit policy/capability.
+It should not silently deduplicate memory across unrelated trust domains.
 
-### Metrics
+KSM also has operational tradeoffs:
 
-At minimum observe:
+- `ksmd` consumes CPU while scanning;
+- convergence is not immediate;
+- memory churn reduces benefit;
+- swapping merged pages breaks sharing until KSM finds identical pages again, as documented by the kernel;
+- side-channel considerations make cross-tenant use a policy decision.
 
-- `/sys/kernel/mm/ksm/pages_shared`,
-- `pages_sharing`,
-- `pages_unshared`,
-- `full_scans`,
-- per-VMM RSS and PSS,
-- CPU time consumed by `ksmd`,
-- convergence time after boot,
-- effect of guest memory churn.
+Useful metrics include:
 
-The real question is empirical: how much does KSM recover after 10, 50, 100 near-identical agent VMs?
+- `pages_shared`;
+- `pages_sharing`;
+- `pages_unshared`;
+- `full_scans`;
+- VMM RSS/PSS;
+- time to convergence;
+- `ksmd` CPU cost.
 
-## 16. virtio-fs DAX as another memory-sharing experiment
+### 11.3 True template-memory CoW
 
-Upstream libkrun exposes configurable virtio-fs DAX window sizing.
-
-A read-only Nix store is a particularly interesting candidate because its files are immutable and read-heavy. If executable/library/file pages can be mapped more directly instead of being repeatedly copied into independent guest page caches, the system may reduce memory duplication before KSM even scans anonymous RAM.
-
-This should be benchmarked, not assumed.
-
-Workestrate should model it as an optional backend capability rather than making the whole design depend on it.
-
-## 17. True warm-template memory CoW
-
-The eventual ideal is closer to VM forking:
+The longer-term density target is to start several VMs from one initialized parent state and share its memory pages immediately:
 
 ```text
-boot base VM
-install/mount shared generation
-initialize common userspace
-start common guest services
-pause at a clean point
-             |
-             v
-      memory + device snapshot
-        /       |       \
-       /        |        \
- child A     child B     child C
+              initialized parent VM
+                       |
+               pause / snapshot
+                       |
+           +-----------+-----------+
+           |           |           |
+        child A     child B     child C
+           |           |           |
+      private-on-write divergence
 ```
 
-Children should initially share parent memory and diverge on write.
+This requires substantially more than KSM:
 
-That requires considerably more than KSM:
+- VM pause/quiesce;
+- guest RAM snapshotting;
+- vCPU state capture;
+- device state capture;
+- consistent disk state;
+- restore/fork semantics;
+- child identity regeneration;
+- network/vsock reattachment;
+- entropy and clock handling;
+- private-on-write memory mapping or equivalent backend support.
 
-- VM pause/quiesce,
-- vCPU state capture,
-- device state capture,
-- guest RAM capture,
-- restore into multiple children,
-- private-on-write memory mapping or an equivalent mechanism,
-- consistent disk snapshot/fork point,
-- new per-child identity,
-- safe vsock/network reconnection,
-- entropy/clock handling,
-- process/socket semantics inside the guest,
-- potentially VMGenID-like behavior.
+It should therefore be modeled as a distinct backend capability, not as an extension of KSM.
 
-This is why it should be treated as a later backend capability such as:
+Possible future backends may provide this through libkrun changes, Clone-like semantics, Firecracker-derived mechanisms, forkd-like approaches, or another VMM entirely.
+
+---
+
+## 12. Build and cache resolution path
+
+A workload should resolve a required Nix path in an ordered way:
 
 ```text
-memory_snapshot_restore
-memory_template_cow
+1. pinned shared lower generation
+          |
+          v miss
+2. local host/infrastructure binary cache, optional
+          |
+          v miss
+3. Cachix / upstream substituters
+          |
+          v miss
+4. remote builder in Cachix VM or dedicated builder VM
+          |
+          v
+5. result copied into workload-private upper
 ```
 
-rather than pretending KSM and VM-fork memory are the same feature.
+A successful output can later be promoted into a new shared generation if it is expected to have fleet-wide reuse.
 
-If a Clone/forkd/Firecracker-style backend eventually implements this more naturally than libkrun, Workestrate should be able to use that backend without changing the workload-level contract.
+This separates immediate workload correctness from long-term cache optimization.
 
-## 18. NixOS as reference host
+---
 
-NixOS is the cleanest host for this design because the entire fabric can become a flake/module rather than a sequence of imperative setup commands.
+## 13. Promotion policy
 
-A NixOS module can own:
+A store path appearing in one workload's upper should not automatically become shared fleet state.
 
-- KVM and nested virtualization policy,
-- Btrfs/XFS layout,
-- KSM service/tuning,
-- remote builder registration,
-- Cachix substituter/trusted key configuration,
-- SOPS secrets,
-- Workestrate services,
-- store publication services/timers,
-- generation GC,
-- local cache endpoint,
-- metrics/exporters,
-- libkrun/Microsandbox fork pins.
+Promotion should be explicit and trusted.
 
-This does not mean the architecture only works on NixOS.
+Possible policies:
 
-## 19. Generic Linux host
+1. **rebuild and publish**: the trusted builder reproduces the derivation, then publishes its closure;
+2. **verified import**: a result is imported into publication staging after signature/provenance validation;
+3. **usage-driven promotion**: Workestrate records repeated cache misses or repeated upper-layer paths and recommends or automatically schedules promotion according to policy.
 
-A normal Linux host can provide the same runtime semantics if it has:
+The published lower should remain curated enough that it does not become a permanent dumping ground for every one-off derivation.
 
-- KVM,
-- Nix,
-- OverlayFS support in guests,
-- a suitable VMM/backend,
-- a CoW/reflink-capable filesystem if storage sharing is desired,
-- service supervision,
-- KSM if RAM dedup is desired.
+---
 
-The main loss is declarative integration and reproducibility, not the core virtualization primitives.
+## 14. Security boundaries
 
-Workestrate should therefore expose capabilities rather than hard-code `Btrfs + KSM + FICLONE` into its universal API.
+### 14.1 Shared lower
 
-## 20. Security model
+The lower generation must be read-only at the host/VMM attachment boundary. A guest root user or compromised guest kernel must not be able to mutate it.
 
-Density is not worth collapsing trust boundaries.
+### 14.2 Workload uppers
 
-### Shared lower is truly read-only
+Each workload upper is private. Workload A must not be able to inspect or modify workload B's upper.
 
-The generation should be read-only at the host/VMM export layer, not only mounted `ro` by guest convention.
+### 14.3 Cachix credentials
 
-A compromised guest kernel should not be able to remount the shared generation writable.
-
-### Builder credentials
-
-Default credential model:
-
-- Cachix write token/key: builder/cache VM only,
-- private-cache read credential: only consumers that need it,
-- ordinary agent VM: no cache write authority,
-- promotion into the shared generation: privileged action.
-
-### Promotion boundary
-
-A guest building `/nix/store/foo` does not mean `foo` automatically becomes trusted fleet-wide state.
-
-Promotion should either:
-
-1. ask the trusted builder to reproduce the derivation and publish the result, or
-2. import into a trusted staging store and perform whatever verification/signing policy Workestrate defines before publication.
-
-### Host path containment
-
-A virtio-fs broker serving the lower generation sees a host path. The VMM/process should run in a host mount namespace where it can see only the exact paths it needs.
-
-Defense in depth should resemble:
+A useful default is:
 
 ```text
-guest
-  -> virtio-fs implementation
+Cachix write authority
+    -> Cachix VM / trusted builder only
+
+Cachix read authority, if private cache
+    -> selected consumers
+
+publication authority
+    -> host publisher / trusted infrastructure path
+
+shared store generation
+    -> all consumers read-only
+```
+
+### 14.4 Host path containment
+
+If a VMM exports host directories through virtio-fs, its host-visible namespace should contain only the paths needed for that workload.
+
+A reasonable defense-in-depth chain is:
+
+```text
+workload VM
+   -> virtio-fs device
       -> restricted VMM mount namespace
-          -> one immutable generation
+         -> exact immutable store generation
 ```
 
-## 21. Workestrate should model semantics, not Microsandbox flags
+The backend should fail closed if it cannot provide the requested read-only semantics.
 
-This is where the architecture becomes valuable beyond one backend.
+---
 
-Workestrate should resolve a high-level store/runtime policy into a backend plan.
+## 15. NixOS reference host
 
-Conceptual workload configuration:
+NixOS is a particularly good control-plane host for this architecture because the entire setup can be represented declaratively.
+
+A host module or flake can own:
+
+- KVM configuration;
+- nested-virtualization policy;
+- Btrfs/XFS layout;
+- KSM enablement and tuning;
+- remote-builder configuration;
+- Cachix substituters and trusted keys;
+- SOPS-backed infrastructure credentials;
+- Workestrate services;
+- generation publisher services;
+- generation GC;
+- local cache endpoint;
+- metrics/exporters;
+- pinned Microsandbox/libkrun/libkrunfw builds.
+
+Generic Linux remains viable as long as it provides equivalent kernel, filesystem, Nix, and VMM capabilities.
+
+---
+
+## 16. Workestrate model
+
+Workestrate should model desired semantics, not Microsandbox-specific command-line switches.
+
+A workload configuration might eventually express:
 
 ```toml
 [store]
 mode = "overlay"
-generation = "latest-compatible"
+generation = "current-compatible"
 
 [store.upper]
 lifecycle = "ephemeral"
@@ -775,22 +687,22 @@ name = "nix-builder"
 strategy = "remote-first"
 
 [store.cache]
+local = true
 cachix = "rybskiworks"
-local_cache = true
 
 [vm.root]
-clone = "reflink-preferred"
+sharing = "cow-preferred"
 
 [vm.memory]
 sharing = "ksm"
 ```
 
-Conceptual internal plan:
+Internally, Workestrate can resolve this into something like:
 
 ```rust
 struct StorePlan {
     generation: StoreGenerationId,
-    lower: ReadOnlyStoreMount,
+    lower: ReadOnlyStoreAttachment,
     upper: UpperStorePlan,
     builder: Option<BuilderEndpoint>,
     substituters: Vec<Substituter>,
@@ -800,372 +712,236 @@ struct BackendCapabilities {
     readonly_directory_mount: bool,
     reflink_root_clone: bool,
     block_cow_root: bool,
-    nested_kvm: bool,
+    nested_virtualization: bool,
     mergeable_guest_memory: bool,
+    virtiofs_dax: bool,
     vm_snapshot_restore: bool,
     template_memory_cow: bool,
-    virtiofs_dax: bool,
 }
 ```
 
-Then `workestrate plan` could report:
+A backend that cannot satisfy a required capability should reject the plan before launch.
 
-```text
-workload: ganymede
-backend: microsandbox
-store generation: sha256:...
-lower: read-only virtio-fs
-upper: ephemeral 20 GiB
-builder: nix-builder
-cache: local -> Cachix -> cache.nixos.org
-root clone: reflink
-memory sharing: KSM
-nested virtualization: disabled
-```
+This keeps the workload model valid if Workestrate later supports Microsandbox, direct libkrun, Clone, Firecracker, forkd, or another backend.
 
-This is the right abstraction boundary because another backend may implement the same semantics differently.
+---
 
-## 22. Store generation lifecycle in Workestrate
+## 17. Workload lifecycle
 
-A workload launch becomes roughly:
+A launch path becomes:
 
-1. resolve the desired generation,
-2. pin/lease that generation,
-3. create the VM root clone,
-4. create the VM's private Nix upper volume,
-5. attach the shared lower generation read-only,
-6. boot the guest,
-7. mount OverlayFS / initialize the Nix `local-overlay` store,
-8. configure builder/substituters,
-9. start the workload,
-10. on VM destroy, remove ephemeral upper and release generation lease.
+1. resolve the requested store generation;
+2. acquire a generation lease;
+3. resolve backend capabilities;
+4. create or clone the VM root;
+5. allocate the workload's private Nix upper;
+6. attach the lower generation read-only;
+7. boot the guest;
+8. mount OverlayFS and initialize the local-overlay store;
+9. configure substituters and remote builder access;
+10. start the workload;
+11. collect store/image/memory-sharing metrics;
+12. on destruction, remove ephemeral upper/root deltas and release the generation lease.
 
-Generation registry example:
+This lifecycle should be visible through `plan`, `inspect`, or equivalent commands so operators can see exactly which sharing mechanisms are active.
 
-```text
-G40 refs=0 old
-G41 refs=3
-G42 refs=11 current
-G43 publishing
-```
+---
 
-Rules:
+## 18. Implementation baseline and remaining capability work
 
-- published generation is never mutated,
-- generation with live leases is never deleted,
-- `current` is only a pointer/default selection,
-- existing VMs do not silently follow `current`,
-- failed publication never changes `current`,
-- publisher GC and guest-upper GC are separate.
+This section separates an immutable source baseline from the proposed architecture. Branch names and package versions are not evidence that a deployment has these capabilities. Resolve the selected Workestrate flake and Cargo locks, then test the resulting runtime and guest image. The examples in this document are proposed configuration, not accepted Workestrate syntax.
 
-This also composes nicely with future checkpoint/Yggdrasil semantics because a checkpoint can record the exact store generation it depends on.
+### 18.1 Workestrate
 
-# 23. Current `rybskiworks` stack: concrete gaps
+Workestrate revision [`6c0672ef`][workestrate-source-baseline] pins the `rybskiworks/microsandbox` fork at `8ae14c22963c0680b231f61280f43db364693a5c` in its flake, with runtime packages and SDK patches selected from that same source. This supersedes the older upstream `0.5.6` release-artifact packaging; it is not a claim about which revision a particular fleet currently selects.
 
-This is the section that matters for implementing the design with today's repositories.
+That source integration does not implement the shared-store generation, publication, or memory-sharing design proposed here.
 
-## 23.1 `rybskiworks/workestrate`
+Work for this design includes:
 
-The current default branch is still wired to an old upstream Microsandbox release in `nix/packages/microsandbox.nix`:
+- retain coherent, reproducibly pinned runtime, SDK, and guest-kernel inputs;
+- extend capability reporting for the store and memory semantics required here;
+- add store-generation objects and leases;
+- add shared-lower/private-upper lifecycle management;
+- add guest initialization for OverlayFS + Nix `local-overlay`;
+- model Cachix VM / builder infrastructure workloads;
+- model store publication and promotion;
+- expose root-storage sharing policy;
+- expose memory-sharing policy;
+- integrate the invariants with Workestrate's black-box/property-based E2E testing plans.
 
-```nix
-pname = "microsandbox";
-version = "0.5.6";
+### 18.2 Microsandbox
 
-url = "https://github.com/superradcompany/microsandbox/releases/download/v${version}/...";
-```
+The pinned Microsandbox source baseline [`8ae14c22`][rybskiworks-msb-cargo] identifies itself as `0.6.18`. Inspect that revision's Cargo and Nix dependencies rather than assuming an update in another repository is already consumed.
 
-So Workestrate is not currently consuming the much newer `rybskiworks/microsandbox` fork at all through that package.
+Changes made only in `rybskiworks/libkrun` or `libkrunfw` do not automatically appear in a selected Microsandbox build. Preserve the dependency chain and verify the actual built artifacts.
 
-Before this store fabric can sensibly land, Workestrate needs a lower-layer dependency strategy first.
+Assess and, where absent, implement generic backend capabilities for:
 
-Needed Workestrate work:
+- hard read-only directory export;
+- root reflink/CoW cloning;
+- nested virtualization declaration;
+- mergeable guest memory once libkrun exposes it;
+- optional virtio-fs DAX controls;
+- future full snapshot/restore if supported by the VMM.
 
-- move off the old 0.5.6 upstream binary packaging,
-- pin/build the intended `rybskiworks/microsandbox` fork reproducibly,
-- introduce backend capabilities instead of assuming one Microsandbox feature set,
-- add store-generation registry and leases,
-- add shared-lower + private-upper planning,
-- add guest bootstrap for OverlayFS and Nix `local-overlay`,
-- add builder/cache infrastructure workload type/profile,
-- add promotion/publication orchestration,
-- expose root clone policy,
-- expose memory-sharing policy,
-- expose nested-virtualization requirements for builder workloads,
-- integrate all of this with the planned black-box/property-based E2E test system.
+The Nix-generation concept should remain in Workestrate. Microsandbox only needs to expose the underlying generic virtualization/storage primitives.
 
-The older workaround of baking Nix-built tools into each image because `/nix/store` could not be safely shared should become unnecessary for closures that can live in the shared generation.
+### 18.3 libkrun
 
-## 23.2 `rybskiworks/microsandbox`
+The selected libkrun [`API header`][rybskiworks-libkrun-header] and implementation must be checked together with the caller's dependency pin.
 
-The current fork identifies itself as Microsandbox `0.6.17`, which is substantially ahead of the `0.5.6` Workestrate package.
+A Workestrate lower-store attachment must rely on an actual read-only export rather than guest convention. An available header declaration alone does not prove that the deployed VMM uses that path or enforces the requested mode.
 
-It already has useful storage primitives in this direction, including:
+For KSM, libkrun needs an opt-in API that marks only eligible guest RAM mappings `MADV_MERGEABLE` and reports whether the requested mode is effective.
 
-- read-only mount semantics at the Microsandbox surface,
-- shared OCI image layers,
-- per-sandbox writable state,
-- flat root disks,
-- reflink-preferred cloning,
-- disk-oriented snapshots/fork primitives.
+Requirements include:
 
-However, its root `Cargo.toml` currently pins:
+- disabled by default;
+- Linux/KVM capability detection;
+- explicit error/reporting when unsupported;
+- no accidental marking of unrelated mappings;
+- observability suitable for integration tests;
+- tests against host KSM counters.
+
+Full memory snapshot/fork support is a later concern and should not block the store architecture.
+
+### 18.4 libkrunfw
+
+The guest kernel must provide the filesystem and virtualization features used by the design, including:
+
+- virtio-fs;
+- OverlayFS;
+- the filesystem used for private upper/root storage;
+- nested KVM only for profiles that explicitly require it.
+
+KSM itself is a host/VMM mechanism, not a guest-kernel feature for this purpose.
+
+The exact `libkrunfw` build used by Workestrate should be tested for required kernel features rather than relying on assumptions.
+
+### 18.5 Nix
+
+`local-overlay` remains an experimental Nix store type and should be pinned deliberately.
+
+The implementation should include tests for:
+
+- mount validation;
+- query behavior;
+- substitutions into the upper;
+- builds into the upper;
+- daemon restart;
+- GC;
+- remount behavior;
+- lower-only paths remaining immutable.
+
+Nix issue [`#16269`][nix-overlay-gc-issue] reports a finite-limit/automatic-GC problem relevant to `local-overlay`. Check the selected Nix revision against the reported defect and any fix, and carry a regression test rather than assuming that a newer version resolves it.
+
+---
+
+## 19. Nested virtualization and builder placement
+
+Some Nix derivations require the `kvm` system feature.
+
+If the builder runs inside the Cachix VM, Workestrate should explicitly decide whether that VM receives nested virtualization.
+
+A useful policy shape is:
 
 ```toml
-msb_krun = "=0.1.32"
-msb_krun_utils = "=0.1.32"
+[infra.cachix_vm]
+nested_virtualization = "require" # require | allow | disable
 ```
 
-That is a crucial integration fact.
+If nested virtualization is disabled, the builder must not advertise `kvm` and KVM-dependent derivations should route to another capable builder.
 
-A feature implemented only in `rybskiworks/libkrun` does **not** automatically bubble into `rybskiworks/microsandbox`.
+This is another reason to keep the logical roles separable even when they are colocated by default.
 
-A reproducible fork dependency path is needed, for example:
+---
 
-- publish/version the forked `msb_krun` crates,
-- use a Git dependency/patch pinned to the rybskiworks fork,
-- or have the Nix build apply a deterministic Cargo source override.
-
-Do not depend on a local developer-only Cargo patch.
-
-Microsandbox work needed for this architecture:
-
-- guarantee an end-to-end hard read-only directory export for the Nix lower store,
-- expose backend capability reporting for that guarantee,
-- expose root clone/reflink capability cleanly,
-- expose nested-KVM capability for builder profiles,
-- expose KSM/mergeable-memory mode once libkrun supports it,
-- optionally expose per-mount virtio-fs DAX sizing for experiments,
-- eventually expose resumable/full VM snapshots if libkrun gains real memory/device restore,
-- keep the runtime process in a restricted host mount namespace around shared store paths.
-
-Workestrate can own the higher-level concept of a "Nix shared generation". Microsandbox only needs to expose strong generic primitives.
-
-## 23.3 `rybskiworks/libkrun`
-
-There is a concrete divergence from current upstream relevant to this design.
-
-Upstream libkrun exposes:
-
-```c
-krun_add_virtiofs3(..., uint64_t shm_size, bool read_only)
-```
-
-which explicitly supports a read-only virtio-fs export.
-
-The current `rybskiworks/libkrun` `krun` branch header exposes `krun_add_virtiofs` and `krun_add_virtiofs2`, but not `krun_add_virtiofs3`.
-
-For a shared Nix lower store, reconcile/port that functionality into the fork and ensure Microsandbox actually uses it where appropriate.
-
-That should come **before** optimization work because the immutable lower store needs a fail-closed read-only boundary.
-
-### libkrun KSM feature
-
-Add an explicit Linux/KVM guest-memory sharing option that applies `MADV_MERGEABLE` to the actual anonymous guest RAM mapping.
-
-Requirements:
-
-- off by default,
-- clear unsupported error on non-Linux/non-KSM environments,
-- observable effective state,
-- do not accidentally mark unrelated mappings or DAX/device regions,
-- test interaction with NUMA/hugepage choices,
-- native KVM integration tests that verify host KSM counters actually move.
-
-The API should probably express a memory-sharing policy rather than expose a raw `madvise` boolean, because future template-memory CoW is a distinct mode.
-
-### libkrun snapshot/restore later
-
-Do not block the shared-store project on this.
-
-True warm-template memory CoW needs a coherent Linux/KVM VM-state snapshot/restore story, including device state. Upstream libkrun snapshot/restore work is still an active area rather than a mature primitive that this design can simply assume.
-
-## 23.4 `rybskiworks/libkrunfw`
-
-KSM is a host/VMM memory feature, so it does not belong in the guest kernel firmware.
-
-The firmware does need the filesystem and virtualization features required by this topology:
-
-- virtio-fs,
-- OverlayFS,
-- ext4 if used for private uppers/root disks,
-- EROFS/SquashFS only if those immutable image directions are adopted,
-- nested KVM support for builder guest profiles only when intentionally required.
-
-`CONFIG_OVERLAY_FS` should be verified in the exact firmware build rather than assumed.
-
-## 23.5 Nix version
-
-This architecture depends on an experimental Nix store type.
-
-Therefore the guest Nix version should be pinned intentionally rather than inherited accidentally from whatever environment built the image.
-
-The Workestrate/NixOS flake should carry:
-
-- a known-good Nix version,
-- `local-overlay-store` experimental feature enabled,
-- the #16269 fix/patch while needed,
-- tests for GC,
-- tests for daemon restart,
-- tests for copy/substitution/build into upper,
-- tests that lower-only store paths are never mutated/deleted.
-
-## 24. Nested virtualization and the builder
-
-Some Nix derivations need the `kvm` system feature.
-
-If the builder itself runs in a microVM, there are two choices:
-
-1. builder does not advertise `kvm`, and KVM-requiring derivations route elsewhere,
-2. Workestrate launches that infrastructure VM with nested virtualization enabled and the backend reports it as a supported capability.
-
-This should be explicit configuration, not an accidental consequence of host CPU flags leaking into a guest.
-
-Conceptually:
-
-```toml
-[infra.builder]
-nested_virtualization = "require" # require | disable | allow
-```
-
-That matches the broader Workestrate idea of requirements/capabilities rather than backend-specific guessing.
-
-## 25. Builder/cache VM image
-
-The builder itself is a good candidate for a NixOS-based or otherwise Nix-built guest image.
-
-It should contain:
-
-- `nix-daemon`,
-- build users,
-- remote-builder transport,
-- Cachix client/uploader,
-- SOPS or Workestrate secret injection integration,
-- durable build-store volume,
-- egress policy to source/cache endpoints,
-- optional nested KVM,
-- metrics.
-
-The host does not need to expose the builder as a general LAN SSH server. Workestrate could eventually bridge the Nix remote-builder protocol over its scoped broker/vsock/SSH control plane.
-
-## 26. Secrets
-
-The clean model is:
-
-```text
-Cachix write authority
-      -> infrastructure builder only
-
-Cachix read authority, if private
-      -> consumers as required
-
-store-generation write authority
-      -> publisher only
-
-shared generation
-      -> workload VMs read-only
-```
-
-This fits Workestrate's broader secret-at-egress/brokered identity direction very well.
-
-## 27. Failure behavior
+## 20. Failure behavior
 
 ### Cachix unavailable
 
-- existing lower generation still works,
-- local cache may still work,
-- builder can build if sources are reachable,
-- cache push can retry later,
-- new remote substitutions may fail.
+Existing shared generations remain usable. The builder may still build from available sources and local inputs. Upload can resume later.
 
-### Builder unavailable
+### Cachix VM / builder unavailable
 
-- existing lower generation works,
-- Cachix substitutions work,
-- already-satisfied workloads keep running,
-- local builds only happen where policy allows them.
+Existing workloads whose dependencies are already in the lower or accessible substituters remain usable. New source builds are delayed or fail according to policy.
 
 ### Publisher unavailable
 
-- existing VMs keep their mounted pinned generation,
-- new VMs can use already-published generations,
-- only creation/promotion of new shared generations is blocked.
+Running workloads are unaffected because they hold immutable pinned generations. New publication is blocked, but existing generations remain usable.
 
 ### Bad generation
 
-- mark generation invalid,
-- stop new leases,
-- roll default pointer back,
-- retain enough state for diagnosis,
-- never mutate the bad generation in place.
+The generation is marked unavailable for new leases. The default pointer can roll back. Existing workloads can either continue if the generation is safe enough to retain for diagnosis or be explicitly recycled according to policy. The generation itself is never edited in place.
 
-## 28. Testing
+---
 
-The architecture is only worthwhile if the sharing/isolation properties are tested from outside the guest.
+## 21. Testing strategy
 
-### Store tests
+The architecture should be proven through black-box tests from outside the workload, not merely by inspecting configuration.
 
-- launch VM A and B from one generation,
-- both resolve lower paths through Nix,
-- A builds/adds a path and only A's upper changes,
-- B cannot see A's upper,
-- neither can mutate lower,
-- destroying A leaves B/lower untouched,
-- publishing G43 does not change running G42 guests,
-- finite-limit GC actually reclaims upper garbage,
-- lower-only paths are never deleted.
+### 21.1 Store isolation
 
-### Publication tests
+- launch two VMs from the same generation;
+- verify both resolve lower paths;
+- add/build a path in VM A;
+- verify only A's upper changes;
+- verify VM B cannot see it;
+- verify neither can mutate the lower;
+- destroy A and verify B remains unaffected.
 
-- import a closure,
-- verify closure metadata,
-- freeze generation,
-- crash publisher at each publication phase,
-- prove default generation pointer is atomic,
-- prove generation with live lease cannot be deleted.
+### 21.2 Generation stability
 
-### Remote builder tests
+- launch workloads on G42;
+- publish G43;
+- verify G42 workloads remain on G42;
+- launch new workload on G43;
+- verify G42 cannot be GC'd while leased;
+- release leases and verify eventual cleanup.
 
-- host with local builds disabled builds through builder,
-- workload VM builds through builder,
-- builder uses substitutes itself,
-- returned path lands in workload upper,
-- builder pushes to Cachix,
-- a later generation can promote the closure.
+### 21.3 Builder/cache behavior
 
-### Storage CoW tests
+- disable local workload builds;
+- build through remote builder;
+- verify builder uses substitutes;
+- verify result appears in workload upper;
+- push result to Cachix;
+- publish selected closure into a future generation.
 
-Measure allocated physical blocks, not apparent image size:
+### 21.4 Root CoW
 
-- N VM clones from same root base,
-- divergence in one VM,
-- only changed extents allocate,
-- compare reflink vs forced full-copy behavior.
+Measure allocated blocks, not apparent file size:
 
-### KSM tests
+- clone N VMs from one base;
+- mutate one VM;
+- verify only changed extents allocate;
+- compare reflink/CoW mode with full-copy fallback.
 
-- launch N identical guests,
-- confirm libkrun marks guest RAM mergeable,
-- wait for KSM convergence,
-- measure PSS/RSS and KSM counters,
-- dirty pages in one guest and verify isolation,
-- verify non-KSM workloads are not marked mergeable,
-- measure CPU cost and convergence latency.
+### 21.5 KSM
 
-## 29. Observability
+- launch N equivalent guests;
+- verify VMM memory is marked mergeable;
+- measure KSM counters and PSS over time;
+- dirty memory in one guest and verify isolation;
+- verify workloads with sharing disabled are not mergeable;
+- measure convergence time and `ksmd` CPU cost.
 
-The whole point is measurable density.
+---
 
-Useful metrics:
+## 22. Observability
+
+The design should expose whether sharing is actually producing density improvements.
+
+Example metrics:
 
 ```text
 workestrate_store_generation_bytes{generation=...}
 workestrate_store_generation_leases{generation=...}
 workestrate_store_upper_bytes{workload=...}
-workestrate_nix_resolution_total{source=lower|local_cache|cachix|builder}
+workestrate_nix_resolution_total{source="lower|local-cache|cachix|builder"}
 workestrate_builder_queue_depth
-workestrate_builder_seconds
-workestrate_root_allocated_bytes{workload=...}
+workestrate_root_physical_bytes{workload=...}
 workestrate_vm_rss_bytes{workload=...}
 workestrate_vm_pss_bytes{workload=...}
 workestrate_ksm_pages_shared
@@ -1173,209 +949,205 @@ workestrate_ksm_pages_sharing
 workestrate_ksm_full_scans
 ```
 
-The useful density model becomes:
+The physical-cost model is roughly:
 
 ```text
-physical storage ~= shared store generations
-                 + shared image/root bases
-                 + sum(private changed root blocks)
-                 + sum(private Nix uppers)
+storage ~= shared store generations
+        + shared VM image bases
+        + private changed root extents
+        + private Nix uppers
 
-physical RAM ~= VMM/device overhead
-             + unique guest working sets
-             + shared file-backed pages
-             + KSM-shared anonymous pages
-             + future template-shared pages
+memory ~= VMM/device overhead
+       + unique guest working sets
+       + shared file-backed pages
+       + KSM-shared anonymous pages
+       + future template-shared memory
 ```
 
-## 30. Staged implementation
+The architecture is successful only if these values improve materially at fleet scale.
 
-### Stage 0: prove Nix `local-overlay` inside one backend
+---
 
-No Cachix and no KSM yet.
+## 23. Implementation sequence
 
-- create a lower local store,
-- freeze it,
-- export it read-only,
-- boot two VMs,
-- give each a private upper,
-- test Nix query/build/copy/GC behavior.
+### Phase 1: prove the overlay-store primitive
 
-### Stage 1: generation publisher
+- pin a suitable Nix version;
+- create an immutable lower store;
+- export it read-only into two microVMs;
+- create independent uppers;
+- verify query, substitution, build, and GC behavior.
 
-- host publication store,
-- immutable Btrfs snapshots or equivalent,
-- generation manifests,
-- leases,
-- atomic default pointer,
-- publisher GC.
+### Phase 2: introduce store generations
 
-### Stage 2: builder/cache VM
+- publication staging store;
+- immutable generation snapshots/images;
+- manifests;
+- leases;
+- atomic default pointer;
+- generation GC.
 
-- trusted remote Nix builder,
-- Cachix uploader,
-- host remote-builder configuration,
-- workload remote-builder configuration,
-- explicit promotion into publication store.
+### Phase 3: Cachix VM and remote builder
 
-### Stage 3: Workestrate first-class model
+- persistent infrastructure VM;
+- Nix remote builder endpoint;
+- Cachix write credentials;
+- host and workload builder configuration;
+- explicit closure promotion into publication staging.
 
-- `StorePlan`,
-- backend capability reporting,
-- config schema,
-- guest bootstrap,
-- generation lifecycle,
-- CLI `plan/status/publish/gc`,
+### Phase 4: Workestrate integration
+
+- `StorePlan` and capability model;
+- generation lifecycle;
+- guest initialization;
+- CLI planning/inspection;
+- failure handling;
 - black-box tests.
 
-### Stage 4: maximize storage sharing
+### Phase 5: root/image density
 
-- migrate Workestrate from Microsandbox 0.5.6 packaging to current fork,
-- consume flat/reflink root-disk primitives,
-- remove unnecessary baked Nix closures from VM images,
-- optionally add local Harmonia,
-- benchmark builder-private vs host-backed publisher store.
+- validate the selected Microsandbox fork's root-storage behavior;
+- use reflink/CoW root cloning where available;
+- shrink base images by moving reusable closures into the shared Nix lower;
+- add physical-allocation metrics.
 
-### Stage 5: KSM
+### Phase 6: KSM
 
-- libkrun mergeable guest-RAM option,
-- Microsandbox surface/capability,
-- Workestrate policy/trust-domain model,
-- NixOS KSM tuning module,
-- metrics and benchmarks.
+- libkrun mergeable-RAM API;
+- Microsandbox capability/configuration;
+- Workestrate policy;
+- NixOS KSM tuning;
+- density and CPU-cost benchmarks.
 
-### Stage 6: warm-template VM memory research
+### Phase 7: warm-template memory research
 
-Only after the simpler layers are measured.
+Evaluate backend-specific VM snapshot/fork implementations only after the simpler storage and KSM mechanisms are measured.
 
-Compare:
+---
 
-- extending libkrun snapshot/restore,
-- Clone-like VM fork semantics,
-- Firecracker/forkd-style backend,
-- userfaultfd/lazy-restore approaches,
-- backend-specific snapshot primitives.
+## 24. Initial reference stack
 
-Do not force every backend to implement memory CoW the same way.
+A practical first implementation would use:
 
-## 31. Practical dependency order for the current rybskiworks stack
+| Layer | Initial choice |
+| --- | --- |
+| Host | NixOS |
+| Host state/storage | Btrfs |
+| Build/cache infrastructure | dedicated Cachix VM, builder colocated initially |
+| Remote binary cache | Cachix |
+| Publication source | explicit `nix copy` from builder/Cachix VM store |
+| Store generations | read-only Btrfs snapshots |
+| Guest lower attachment | hard read-only virtio-fs |
+| Guest store | pinned Nix `local-overlay` |
+| Guest upper | private per workload, ephemeral by default for agents |
+| Root sharing | backend-native reflink/CoW |
+| Memory sharing | none initially, then KSM |
+| Warm-memory CoW | deferred backend research |
+| Host `/nix/store` | ordinary local host store |
 
-The lower-layer work should happen approximately in this order:
+This reaches the majority of the likely storage-density benefit without making the first milestone depend on VM memory snapshot/fork support.
+
+---
+
+## 25. Open questions and benchmarks
+
+1. How does virtio-fs perform under Nix's metadata-heavy workload with tens or hundreds of guests?
+2. Does virtio-fs DAX materially reduce physical memory consumption for shared Nix executables and libraries?
+3. What is the KSM convergence curve at 10, 50, and 100 near-identical agent VMs?
+4. How much CPU does `ksmd` consume at those densities?
+5. How much does zram/swap reduce sustained KSM benefit?
+6. Is explicit `nix copy` into publication staging materially expensive compared with a host-backed publication subvolume?
+7. Should generations be fleet-wide, fleet-specific, project-specific, or eventually layered/composable?
+8. What promotion heuristic best identifies upper-layer paths worth adding to the shared base?
+9. Should the Cachix VM also serve a local Harmonia endpoint, or is the lower-store plus Cachix path sufficient?
+10. At what density does maintaining true template-memory CoW become worth the VMM complexity?
+11. Which backend gives the best combination of fast root cloning, hard read-only shared mounts, nested virtualization, KSM, and eventual memory snapshot/fork?
+
+---
+
+## 26. Summary
+
+The target system gives every workload the semantics of an independent Nix machine while sharing the expensive immutable parts underneath it:
 
 ```text
-1. Pin/fix Nix local-overlay behavior
-2. Reconcile hard read-only virtio-fs in rybskiworks/libkrun
-3. Verify libkrunfw OverlayFS support
-4. Make rybskiworks/microsandbox consume the intended libkrun fork reproducibly
-5. Expose/verify read-only mount capability in Microsandbox
-6. Move Workestrate off the old upstream Microsandbox 0.5.6 binary
-7. Implement Workestrate store generations + private uppers
-8. Add builder/cache infrastructure workload + publication path
-9. Integrate Microsandbox root-disk CoW/reflink primitives
-10. Add libkrun KSM
-11. Bubble KSM through Microsandbox capability/config
-12. Bubble KSM through Workestrate policy/config
-13. Research full memory snapshot/fork only later
+                 Cachix
+                   ^
+                   |
+         Cachix VM / builder
+                   |
+              publish
+                   v
+          immutable store G42
+             /      |      \
+            /       |       \
+       VM A        VM B      VM C
+       upper A     upper B   upper C
+
+root disks:   shared base + CoW divergence
+Nix stores:   shared lower + private overlay
+RAM:          KSM, then optional template CoW
 ```
 
-The shared-store work should not be blocked on true VM-memory CoW.
+The architecture does not depend on one monolithic cache VM, one filesystem, or one hypervisor. It depends on a small set of explicit semantics: immutable shared generations, private mutable state, capability-aware backends, trusted publication, and measurable sharing.
 
-## 32. Reference implementation choices I would use first
+That is the level Workestrate should orchestrate.
 
-For a serious first prototype:
+---
 
-- **host**: NixOS,
-- **host state filesystem**: Btrfs,
-- **builder**: dedicated Workestrate-managed infrastructure microVM,
-- **builder store**: private initially,
-- **Cachix**: durable off-host binary cache, builder is the only writer,
-- **publication store**: separate host local-store root populated through `nix copy`,
-- **generation mechanism**: read-only Btrfs snapshots,
-- **VM lower attachment**: hard read-only virtio-fs,
-- **VM Nix**: pinned Nix 2.34.x+ with `local-overlay-store` and the GC bug fixed/patched,
-- **VM upper**: private per workload, ephemeral by default for agents,
-- **root image**: Microsandbox flat/reflink where appropriate,
-- **host Nix**: normal host store, optional `max-jobs = 0` to force builds into builder VM,
-- **local HTTP cache**: optional Harmonia later,
-- **RAM sharing**: KSM after the store/image path is working,
-- **true warm-memory CoW**: explicitly deferred.
-
-That gets most of the likely storage win and a meaningful fraction of the RAM win without making the first version depend on immature VM-state cloning.
-
-## 33. Open benchmark questions
-
-1. virtio-fs vs read-only block image for a very large Nix lower store under metadata-heavy agent workloads?
-2. Does virtio-fs DAX materially reduce host RSS for common Nix executables/libraries?
-3. How much memory does KSM actually save at 10, 50, 100 similar agent VMs?
-4. How long does KSM take to converge, and what CPU cost does it impose?
-5. How badly do zram/swap-heavy workloads reduce sustained KSM benefit?
-6. Is the additional builder-private -> publication-store copy expensive enough to justify a trusted host-backed publication subvolume?
-7. Should store generations be one broad fleet base, project-specific bases, or composable layers?
-8. At what point should frequently recurring upper-layer paths be promoted automatically?
-9. How does Microsandbox virtio-fs behave under high-concurrency Nix metadata/stat workloads?
-10. At what VM density does true warm-template memory CoW justify maintaining deeper VMM changes?
-
-## 34. References
+## References
 
 ### Nix
 
-- Experimental `local-overlay` store, Nix 2.34.9: https://nix.dev/manual/nix/2.34/store/types/experimental-local-overlay-store
-- Distributed builds: https://nix.dev/tutorials/nixos/distributed-builds-setup.html
-- Current `local-overlay` finite-limit GC bug: https://github.com/NixOS/nix/issues/16269
+- [Nix 2.34.9: Experimental Local Overlay Store][nix-local-overlay]
+- [Nix 2.34.9: Store types and settings][nix-store-types]
+- [Nix: Distributed builds setup][nix-distributed-builds]
+- [Nix issue #16269: local-overlay GC with finite `max-freed`][nix-overlay-gc-issue]
 
-### Cachix and local cache
+### Linux storage and memory
 
-- Cachix: https://www.cachix.org/
-- Cachix docs: https://docs.cachix.org/
-- Harmonia: https://github.com/nix-community/harmonia
-- Attic: https://github.com/zhaofengli/attic
+- [Linux kernel: OverlayFS][overlayfs]
+- [Linux kernel: Kernel Samepage Merging][linux-ksm]
+- [Btrfs documentation: subvolumes and snapshots][btrfs-subvolume]
 
-### Linux memory
+### Cachix and local cache options
 
-- KSM documentation: https://docs.kernel.org/admin-guide/mm/ksm.html
+- [Cachix documentation][cachix-docs]
+- [Harmonia][harmonia]
+- [Attic][attic]
 
-### Microsandbox / libkrun
+### Virtualization stack
 
-- Microsandbox: https://github.com/superradcompany/microsandbox
-- Microsandbox root-disk clone docs: https://github.com/superradcompany/microsandbox/blob/main/docs/cli/sandbox-commands.mdx
-- Microsandbox filesystem security model: https://github.com/superradcompany/microsandbox/blob/main/docs/security/filesystem.mdx
-- libkrun API: https://github.com/libkrun/libkrun/blob/main/include/libkrun.h
+- [Microsandbox][microsandbox]
+- [libkrun][libkrun]
+- [libkrun API header][libkrun-header]
 
-### rybskiworks integration targets
+### Rybskiworks source and integration references
 
-- https://github.com/rybskiworks/workestrate
-- https://github.com/rybskiworks/microsandbox
-- https://github.com/rybskiworks/libkrun
-- https://github.com/rybskiworks/libkrunfw
+- [Workestrate][workestrate]
+- [Workestrate immutable source baseline][workestrate-source-baseline]
+- [rybskiworks/microsandbox][rybskiworks-msb]
+- [rybskiworks/microsandbox `Cargo.toml`][rybskiworks-msb-cargo]
+- [rybskiworks/libkrun][rybskiworks-libkrun]
+- [rybskiworks/libkrun header][rybskiworks-libkrun-header]
+- [rybskiworks/libkrunfw][rybskiworks-libkrunfw]
 
-## 35. Bottom line
-
-The ideal system is not:
-
-```text
-one mutable /nix/store shared writable by every VM
-```
-
-It is:
-
-```text
-trusted builder builds once
-        |
-        +--> pushes durable output to Cachix
-        |
-        +--> promotes useful closure into publication store
-                                  |
-                                  v
-                         immutable generation G
-                                  |
-                    shared read-only across many VMs
-                      /            |            \
-                     /             |             \
-             private upper A  private upper B  private upper C
-
-shared root/image base -> storage CoW per VM
-shared anonymous RAM   -> KSM
-warm parent RAM        -> true VM/template CoW later
-```
-
-The goal is that each workload can **behave as though it owns a complete independent Nix machine**, while the physical host pays for immutable common state, common image blocks, and eventually common memory pages as close to once as the isolation layers safely permit.
+[nix-local-overlay]: https://nix.dev/manual/nix/2.34/store/types/experimental-local-overlay-store
+[nix-store-types]: https://nix.dev/manual/nix/2.34/command-ref/new-cli/nix3-help-stores
+[nix-distributed-builds]: https://nix.dev/tutorials/nixos/distributed-builds-setup.html
+[nix-overlay-gc-issue]: https://github.com/NixOS/nix/issues/16269
+[overlayfs]: https://docs.kernel.org/filesystems/overlayfs.html
+[linux-ksm]: https://docs.kernel.org/admin-guide/mm/ksm.html
+[btrfs-subvolume]: https://btrfs.readthedocs.io/en/latest/Subvolumes.html
+[cachix-docs]: https://docs.cachix.org/
+[harmonia]: https://github.com/nix-community/harmonia
+[attic]: https://github.com/zhaofengli/attic
+[microsandbox]: https://github.com/superradcompany/microsandbox
+[libkrun]: https://github.com/containers/libkrun
+[libkrun-header]: https://github.com/containers/libkrun/blob/main/include/libkrun.h
+[workestrate]: https://github.com/rybskiworks/workestrate
+[workestrate-source-baseline]: https://github.com/rybskiworks/workestrate/blob/6c0672efb376ceb860a0a5a339bf6b550a94fea2/flake.nix
+[rybskiworks-msb]: https://github.com/rybskiworks/microsandbox
+[rybskiworks-msb-cargo]: https://github.com/rybskiworks/microsandbox/blob/8ae14c22963c0680b231f61280f43db364693a5c/Cargo.toml
+[rybskiworks-libkrun]: https://github.com/rybskiworks/libkrun
+[rybskiworks-libkrun-header]: https://github.com/rybskiworks/libkrun/blob/krun/include/libkrun.h
+[rybskiworks-libkrunfw]: https://github.com/rybskiworks/libkrunfw
