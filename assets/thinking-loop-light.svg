@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="238" viewBox="0 0 1200 238" role="img" aria-labelledby="title desc">
+  <title id="title">How ideas develop</title>
+  <desc id="desc">Ask a useful question, explore alternatives, challenge assumptions with evidence, and distill what survives. Revisit when the evidence changes. This is a thinking loop, not an approval pipeline.</desc>
+  <defs><linearGradient id="ink" x1="48" y1="0" x2="1152" y2="0" gradientUnits="userSpaceOnUse"><stop stop-color="#255bbd"/><stop offset=".35" stop-color="#b3435d"/><stop offset=".65" stop-color="#b3435d"/><stop offset="1" stop-color="#255bbd"/></linearGradient></defs>
+  <rect x="1" y="1" width="1198" height="236" rx="18" fill="#faf9f6" stroke="#d1d9e2"/>
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" fill="#536379" letter-spacing="1.2"><text x="48" y="37">a practice, not a pipeline</text><text x="1152" y="37" text-anchor="end">leave room to be wrong</text></g>
+  <path d="M65 75H1135" stroke="#d1d9e2" fill="none"/>
+  <path d="M274 71l4 4-4 4m276-8 4 4-4 4m276-8 4 4-4 4" fill="none" stroke="#536379"/>
+  <g fill="#faf9f6" stroke="url(#ink)" stroke-width="2"><circle cx="58" cy="75" r="7"/><circle cx="340" cy="75" r="7"/><circle cx="622" cy="75" r="7"/><circle cx="904" cy="75" r="7"/></g>
+  <g font-family="Arial, Helvetica, sans-serif" font-size="35" font-weight="600" letter-spacing="-.8" fill="#192334"><text x="48" y="129">ask</text><text x="330" y="129">explore</text><text x="612" y="129">challenge</text><text x="894" y="129" fill="url(#ink)">distill</text></g>
+  <g font-family="Arial, Helvetica, sans-serif" font-size="17" fill="#536379"><text x="48" y="157">a useful question</text><text x="330" y="157">the alternatives</text><text x="612" y="157">the assumptions</text><text x="894" y="157">what survives</text></g>
+  <path d="M1141 168V182Q1141 199 1124 199H76Q58 199 58 181V174m-5 5 5-5 5 5" fill="none" stroke="#d1d9e2" stroke-width="1.5"/>
+  <rect x="391" y="187" width="418" height="25" fill="#faf9f6"/>
+  <text x="600" y="204" text-anchor="middle" font-family="ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" fill="#536379">revisit when the evidence changes</text>
+</svg>

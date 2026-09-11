@@ -1,0 +1,35 @@
+name: Explore an idea
+description: Frame a question worth investigating and a useful artifact to preserve.
+title: 'explore: '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A useful question is enough to start. This is an exploration, not an implementation commitment.
+        Check existing notes and issues first; extend an existing thread when appropriate.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question and motivation
+      description: What should we understand, and why is it worth investigating?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and boundaries
+      description: Relevant projects, constraints, trust boundaries, assumptions, and explicit non-goals.
+    validations:
+      required: true
+  - type: textarea
+    id: artifact
+    attributes:
+      label: Useful outcome
+      description: The note, comparison, worked example, experiment, or specification seed this should produce.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Starting points and evidence
+      description: Related notes/issues, primary references, inspected versions, competing approaches, and open questions.

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400" role="img" aria-labelledby="title desc">
+  <title id="title">sketchbook / rybskiworks</title>
+  <desc id="desc">Ideas worth thinking through. A branching drawing follows one question into several possibilities, then keeps a path to the next question. Possibilities, not promises.</desc>
+  <defs>
+    <linearGradient id="ink" x1="44" y1="0" x2="1156" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#80b5ff"/><stop offset=".3" stop-color="#f19a9e"/><stop offset=".65" stop-color="#f19a9e"/><stop offset="1" stop-color="#80b5ff"/>
+    </linearGradient>
+    <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".8" fill="#334256"/></pattern>
+    <clipPath id="field"><rect x="654" y="70" width="501" height="250" rx="12"/></clipPath>
+  </defs>
+  <rect x="1" y="1" width="1198" height="398" rx="18" fill="#0d1117" stroke="#293545"/>
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" fill="#9baabd">
+    <text x="46" y="44" letter-spacing="1.5">rybskiworks / open notebook</text>
+    <text x="1154" y="44" text-anchor="end" letter-spacing="1.5">field notes in possible systems</text>
+  </g>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <text x="42" y="147" font-size="91" font-weight="700" letter-spacing="-5" fill="url(#ink)">sketchbook</text>
+    <text x="46" y="218" font-size="35" letter-spacing="-.8" fill="#edf2f7">ideas worth</text>
+    <text x="46" y="260" font-size="35" letter-spacing="-.8" fill="#edf2f7">thinking through.</text>
+  </g>
+  <g clip-path="url(#field)">
+    <rect x="654" y="70" width="501" height="250" fill="url(#dots)" opacity=".55"/>
+    <path d="M670 195H720C770 195 755 109 814 109H866M720 195C770 195 755 281 814 281H866M870 195C938 195 926 152 979 152H1094M870 195C938 195 926 238 979 238H1094M870 109C928 109 930 86 982 86H1094M870 281C928 281 930 304 982 304H1094" fill="none" stroke="#293545" stroke-width="2"/>
+    <path d="M870 109C945 109 948 117 998 117H1094M870 281C945 281 948 273 998 273H1094" fill="none" stroke="#9baabd" stroke-opacity=".45" stroke-width="1.5" stroke-dasharray="3 6"/>
+    <path d="M670 195H1094" fill="none" stroke="url(#ink)" stroke-width="3"/>
+    <circle cx="682" cy="195" r="22" fill="#0d1117" stroke="url(#ink)" stroke-width="2"/>
+    <circle cx="870" cy="109" r="7" fill="#0d1117" stroke="#9baabd" stroke-width="1.5"/>
+    <circle cx="870" cy="281" r="7" fill="#0d1117" stroke="#9baabd" stroke-width="1.5"/>
+    <circle cx="870" cy="195" r="8" fill="#0d1117" stroke="url(#ink)" stroke-width="3"/>
+    <circle cx="1094" cy="195" r="21" fill="#0d1117" stroke="url(#ink)" stroke-width="2"/>
+    <circle cx="1094" cy="195" r="6" fill="url(#ink)"/>
+    <path d="M1090 82l8 8m0-8-8 8M1090 300l8 8m0-8-8 8" fill="none" stroke="#9baabd" stroke-width="1.4"/>
+    <g fill="#0d1117" stroke="#9baabd" stroke-width="1.5"><circle cx="1094" cy="117" r="4"/><circle cx="1094" cy="152" r="4"/><circle cx="1094" cy="238" r="4"/><circle cx="1094" cy="273" r="4"/></g>
+  </g>
+  <text x="682" y="202" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="23" fill="#edf2f7">?</text>
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', monospace" font-size="12" fill="#9baabd">
+    <text x="682" y="241" text-anchor="middle">ask</text>
+    <text x="870" y="230" text-anchor="middle">branch</text>
+    <text x="1094" y="339" text-anchor="middle">keep asking</text>
+  </g>
+  <path d="M46 353H1154" stroke="#293545"/>
+  <g font-family="ui-monospace, 'DejaVu Sans Mono', monospace" font-size="13" fill="#9baabd">
+    <text x="46" y="379">systems / agents / infrastructure</text>
+    <text x="1154" y="379" text-anchor="end">possibilities, not promises.</text>
+  </g>
+</svg>
