@@ -8,7 +8,8 @@
 <p align="center">
   <a href="#on-the-desk">explorations</a> /
   <a href="https://github.com/rybskiworks/sketchbook/issues">open questions</a> /
-  <a href="CONTRIBUTING.md">add a sketch</a>
+  <a href="CONTRIBUTING.md">add a sketch</a> /
+  <a href="README.agents.md">agent map</a>
 </p>
 
 **A shared notebook for rybskiworks.** Ideas, architectural sketches, research notes, and technical explorations that deserve a durable home before they deserve a project of their own.
@@ -39,6 +40,8 @@ A useful question is enough to start an issue. A useful investigation deserves a
 Keep one subject per note in `explorations/`, link related work, distinguish proposals from verified capabilities, and record what would change your mind. Small corrections and unfinished but well-framed ideas are welcome.
 
 Use the [exploration template](templates/exploration.md) for a starting point, not a form to fill mechanically. See [contributing](CONTRIBUTING.md) for the lightweight conventions and local checks.
+
+Repository maintenance and staged protections are documented in the [governance guide](docs/repository-governance.md).
 
 ---
 
