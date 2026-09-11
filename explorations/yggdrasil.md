@@ -8,6 +8,8 @@
 
 **Remember outcomes. Rewind execution. Keep authority moving forward.**
 
+[State model](#3-separate-five-kinds-of-state) / [Capabilities and evidence](#6-capabilities-describe-semantics-not-names) / [Agent tools](#8-agent-facing-tools-and-continuation-semantics) / [Promotion](#11-promotion-is-a-new-generation-not-arbitrary-merge) / [Failure properties](#13-observable-properties-and-negative-controls) / [Smallest experiment](#15-smallest-useful-experiment)
+
 ## 1. The idea
 
 Yggdrasil is a harness in which an agent can deliberately checkpoint an experiment, fork alternative futures, learn from their outcomes and revisit an earlier environment without forgetting everything it learned afterward. Branches are continuations of one problem-solving effort, not unrelated workers handed the same prompt.
@@ -136,6 +138,8 @@ A single `supports_snapshot: true` is insufficient. The proposed adapter reports
 
 Convenient experimental stages are cold reconstruction, stopped-storage branching, full VM-state restore, and warm/live branching. They are not a universal total order: one backend can support a memory mechanism while lacking the necessary writable-volume isolation or application quiescing.
 
+A profile can offer `cow_restore` from immutable snapshot memory without `live_branch` from a running source. These are separate proposed capabilities, not alternate spellings of "fork". A capability is usable only when its required host configuration, storage coverage, identity barrier and authority are satisfied; a documented upstream mechanism is not by itself an available Workestrate operation.
+
 A cold restart must return `mode: cold` and its capture scope, even if it was requested as a fallback. Explicit opt-in is required for a downgrade. KSM may reduce duplicate physical pages, but is a deduplication mechanism, not a checkpoint, replay guarantee or replacement for a memory-fork contract [K1].
 
 ### Source-pinned candidate matrix
@@ -144,10 +148,15 @@ Inspection date: 2026-09-11. This table distinguishes inspected documentation/co
 
 | Candidate and inspected revision | Evidence available here | What remains proposed or unqualified |
 | --- | --- | --- |
-| Workestrate `migration/tool-model` at `09e63162e856541f59fe011c24864bc3845a6ebc` | README describes a generic workload orchestrator; `flake.lock` pins `rybskiworks/microsandbox` to `8ae14c22963c0680b231f61280f43db364693a5c` and `libkrunfw` to `3017d504988971bd84dcc5935c96aa4a81227d1e` [W1][W2]. | This inspection is not a source audit of the full runtime or its libkrun dependency chain. Generic checkpoint/fork capability reporting and the Yggdrasil adapter are proposals, not established current APIs. |
-| Microsandbox/libkrun path selected by that pin | The consumer's actual selected fork revision is known from its lockfile [W2]. | Storage and warm-memory fork semantics, guest preparation, exported operations and nested-state capture need source inspection and conformance tests at the complete dependency pins. A fork in Git is not evidence of runtime VM forking. |
+| Workestrate `migration/tool-model` at `09e63162e856541f59fe011c24864bc3845a6ebc` | README describes a generic workload orchestrator; `flake.lock` pins `rybskiworks/microsandbox` to `8ae14c22963c0680b231f61280f43db364693a5c` and `libkrunfw` to `3017d504988971bd84dcc5935c96aa4a81227d1e` [W1], [W2]. | This inspection is not a source audit of the full runtime or its libkrun dependency chain. Generic checkpoint/fork capability reporting and the Yggdrasil adapter are proposals, not established current APIs. |
+| Microsandbox fork at `8ae14c22963c0680b231f61280f43db364693a5c` | The pinned `snapshot-fork` example stops a sandbox, calls `snapshot`, then creates a fresh sandbox with `from_snapshot` [M1]. | Source evidence for a stopped-sandbox/fresh-boot investigation, not a live-memory fork claim. The example was read, not executed. Named-volume/mount coverage, stronger paths elsewhere, identity repair and end-to-end Workestrate integration remain unqualified. |
+| Lower dependency provenance at that Microsandbox pin | Cargo pins `rybskiworks/libkrun` at `5b81726df87807876e11939995df2eb6688be173` and patches `msb-vm-memory` at `f798d4f274db22a3c458ba756900db2cd03e6fe9`; the flake pins `libkrunfw` at `3017d504988971bd84dcc5935c96aa4a81227d1e` [M2], [M3]. | Reading dependency declarations is not auditing those implementations or establishing RAM/device capture, KSM enablement, active nested-state capture, or conformance of a complete build. |
 | Clone, `unixshells/clone` master at `a9525154846e709bd46a7aeb64ceb1fb43547ee2` | Pinned README documents snapshot/fork, private snapshot memory mappings, guest identity injection and exec. Its status section also says persistent qcow2 per-fork disk overlay needs work [C1]. | The snapshot commands alone do not establish coordinated persistent-disk rollback, all-device coverage or safe application identity renewal. Qualify the exact disk/guest path before using it as a resettable world. No headline performance/security claim is adopted here. |
 | forkd, `deeplethe/forkd` dev at `07a1ffb1543c0f7e12719064c881ae769cf4dcec` | Pinned README documents Firecracker-based snapshot memory CoW and v0.4 live branching, including asynchronous writing/ready behavior and a modified Firecracker/userfaultfd setup [F1]. | Prove rootfs/volume capture, API/CLI composition, branch readiness, crash recovery and identity repair in the chosen mode. The older v0.2 design at the same revision says volume bindings inherit and contains historical non-goals; it is not a current capability oracle [F2]. |
+
+The inspected Workestrate control types distinguish guest execution, SSH custody and lifecycle; their `LifecycleOperation` enum lists `Inspect` and `Stop` [W3]. This is a useful identity/dispatch precedent, not a Yggdrasil checkpoint API. It is a narrow statement about that inspected contract, not proof that no other source path implements snapshot-related work.
+
+Firecracker's pinned snapshot documentation independently describes memory/hardware capture, user-managed disk files, private snapshot-memory mappings and connection limitations [FC1]. It supplies a possible `cow_restore` mechanism, not evidence that Workestrate has a Firecracker adapter or that forkd's modified build has been qualified here. Its memory backing file must remain available while restored VMs depend on it; memory-sharing dependencies therefore belong in the retention graph.
 
 These are candidates, not a winner selection. The first implementation can use an owned stopped-image copy adapter with no warm-fork claim. Clone and forkd become optimization or richer-state candidates only after their adapters satisfy the same observable contract. Benchmark publications are leads for experiments, not portable latency or density promises.
 
@@ -206,7 +215,7 @@ All names below are proposed. The protocol could be exposed through typed tools,
 | `world.rewind` | Fence/end the current attempt as requested and start a fresh incarnation at an earlier checkpoint, with an explicit retained-knowledge view. |
 | `world.wait` / `world.cancel` | Observe or cancel owned operations/children; cancellation is a request with an eventual terminal outcome, not retroactive undo. |
 | `knowledge.publish` / `knowledge.query` | Append candidate evidence and retrieve an identified, scope-filtered view. Publication is not automatic endorsement. |
-| `evaluation.request` | Run a named, versioned validator against a specified immutable candidate or branch generation. |
+| `evaluation.request` | Run a named, versioned validator against an immutable candidate. Exploratory scores may name a branch generation, but cannot certify a later modified state. |
 | `artifact.propose` | Export a narrow candidate with ancestry, expected target base and validation evidence. |
 | `branch.discard` | End a branch and release execution retention according to policy, without automatically deleting useful evidence. |
 
@@ -247,17 +256,23 @@ A network call that looks read-only can still consume money, leak data or modify
 
 The effect broker records a durable intent before dispatch, uses a service-supported idempotency key where available, and records the external receipt. If dispatch may have succeeded but no receipt is available, the operation is `outcome_unknown`. Query the service or reconcile explicitly; do not blindly retry a non-idempotent action or claim exactly-once behavior across an arbitrary service boundary.
 
+Keep a stable **logical effect ID** across retries and restores of the same intent. A new launch-generation ID is not a replacement idempotency key: using it would make a replay appear to be a new external action. Record destination, intent/payload digest, originating generation, current authorization and receipt in L. The same key with a changed payload is rejected; distinct branch proposals remain distinct intents until explicitly selected. Receipt retention and any provider deduplication window must cover the permitted retry horizon [R1].
+
+Reconciliation must not depend on the abandoned guest staying alive. An authorized supervisor can inspect a completed receipt without reauthorizing the old guest to mutate anything. When a provider cannot resolve an ambiguous outcome, quarantine that intent and block dependent publication rather than treating a timeout as proof of failure. A local journal alone does not supply arbitrary external exactly-once execution [R1].
+
 An effect barrier is a point after which prior checkpoints cannot be described as returning the whole mission to its old world. It can block rewind, or permit a local rewind with an explicit diverged-E warning and restricted continuation. The policy must choose; silently ignoring the barrier is invalid. Compensation is a new external action, not erasing the original effect.
 
 No agent-controlled snapshot can restore a revoked grant, roll back a consumed budget, or modify the ledger to hide a publication. An agent can propose exporting results, but whether publication requires human review, a deterministic gate or a preapproved narrow grant belongs to the mission owner.
 
 ## 11. Promotion is a new generation, not arbitrary merge
 
-Distinguish four operations commonly hidden behind "keep the winner":
+Distinguish five operations commonly hidden behind "keep the winner":
 
 **Select a continuation:** choose a branch to explore next. This is search policy and need not publish anything.
 
-**Seal an execution result:** quiesce/capture a branch into a new immutable checkpoint. Change a named mission head using compare-and-swap against its expected old version. Existing siblings keep their original immutable dependencies.
+**Seal an execution result:** quiesce/capture a branch into a new immutable checkpoint with a subject digest. Sealing does not change the named mission head, certify correctness, or publish anything.
+
+**Promote a sealed generation:** verify the required independent evaluations of that exact digest, then change the named mission head using compare-and-swap against its expected old version. Existing siblings keep their original immutable dependencies. Any activation receives fresh authority and identity.
 
 **Promote an artifact:** export a patch, dataset or configuration against an explicit base. Apply it to a clean target generation, run independent validation and request authorized publication. A target-base mismatch requires reapplication and revalidation, not rewriting the declared ancestry.
 
@@ -265,13 +280,23 @@ Distinguish four operations commonly hidden behind "keep the winner":
 
 There is no proposed operation that generically three-way-merges divergent RAM, device state or databases. Combining complementary ideas means constructing a new branch with explicit input artifacts and testing the combination. A passing score on one child cannot establish correctness of a different combined candidate.
 
-Promotion records an intent, immutable candidate, validator version/result, expected target version and terminal receipt. If the head change committed but the caller lost the response, operation lookup resolves it. A crash between local acceptance and external publication is not a single atomic transaction; the effect broker records and reconciles the boundary.
+A proposed local promotion protocol is:
+
+1. Seal the selected candidate and acquire holds on its complete dependency closure and evidence. A mutable pre-seal score is not an acceptance certificate.
+2. Evaluate that immutable subject under the required oracle/policy and input history. Record subject digest, validator version, fixtures, verdict and raw evidence. Evaluator failure or an unknown verdict is not a pass.
+3. Persist a promotion intent and a complete new generation manifest. Atomically compare-and-swap the expected mission head and record the local promotion outcome in the same authoritative metadata transaction.
+4. Acknowledge after the declared durability boundary. A lost acknowledgement is resolved by lookup/retry of the same operation ID, not a second promotion. A conflict leaves the previous head unchanged and the candidate inspectable.
+5. Activate, export or publish only through their separately authorized operations. Release preparation holds only when recovery and retention rules permit it.
+
+A crash before the metadata commit leaves an unselected candidate; a crash after it leaves one complete discoverable generation. Selecting an older checkpoint still creates a new generation, never resurrecting an old lease or refunding spent budget. A crash between local acceptance and external publication is not a single atomic transaction; the effect broker records and reconciles that separate boundary.
 
 ## 12. Budgets, retention and recovery
 
 Admission is controlled by a mission-wide ledger outside S and A. Limits can include total tokens/cost, CPU time, live RAM, concurrency, branch depth, number of checkpoints, snapshot bytes, retained evidence and wall-clock deadline. Per-branch grants reserve from this envelope; recursive children spend from delegated capacity, not new unlimited accounts.
 
 Reserve resources before creating children, reconcile actual usage, and release reservations only when terminal state is known. A lost response is not evidence that no VM was created. Memory CoW is an optimization, not permission to ignore worst-case divergence; dirty pages and storage layers can consume real capacity later. Limits require enforceable host/runtime mechanisms where advertised, not just an agent's promise.
+
+Close admission before cancelling exhausted work, and reserve cleanup/evidence-persistence headroom. If the backend cannot establish that a guest stopped, expose a quarantined/reconciliation state and retain its dependencies rather than claiming safe reclamation. Deadlines and credential expiry use current host authority, not a restored guest clock.
 
 Checkpoint reachability includes base images, Nix store generations, writable layers, memory snapshots, continuations and evidence needed for retained provenance. Runtime-layer GC, Nix-store GC and knowledge retention have separate responsibilities. Pin dependencies before a checkpoint becomes visible and before a restore can race their collection.
 
@@ -303,6 +328,8 @@ These are proposed acceptance properties, not claims of an existing proof. Safet
 | Operations and publication are idempotent within their stated contracts. | Lose responses at controlled boundaries, retry the same ID, and count real children/effects using a separate observer. |
 | No ready checkpoint references incomplete or collected state. | Inject crashes across preparation/publication/collection and inspect the artifact registry independently. |
 | A promoted artifact is the artifact that was validated. | Change the candidate or target base between scoring and promotion; require a digest/version conflict and revalidation. |
+| Sealing alone never advances the selected mission head. | Seal a failing candidate and verify the head is unchanged. Kill the controller immediately before and after the promotion transaction; retry the same ID and observe one complete selected generation. |
+| A restored launch cannot turn an ambiguous effect into a new intent. | Lose a fake service's acknowledgement outside S, restore to a fresh generation, then retry/reconcile the original logical ID. A fresh-key-on-restore negative control must expose a duplicate. |
 | Cancellation terminates or reports an unresolved state within a bound. | Interrupt a child during capture/exec; verify backend processes and resource reservations, not only a green harness log. |
 
 Also test prompt injection in target output, malicious knowledge records, duplicated evidence, resource exhaustion and denied cross-mission access. The harness must rediscover deliberately introduced defects before a clean run is credible. The broader independent-oracle and negative-control philosophy is developed in [Workestrate testing](workestrate-testing-philosophy.md).
@@ -351,9 +378,15 @@ Start with one host-side agent harness, one ledger/knowledge directory outside t
 
 Shut down the VM, confirm its process is stopped and capture the owned disk and pinned configuration. For the first prototype, an ordinary full copy is acceptable: it avoids assuming reflink, snapshot or warm-fork support. Start each attempt from a fresh private copy. Name the guarantee `stopped-disks/cold`, not process continuation. Require all meaningful application state to be on that disk, with no writable host mounts or uncontrolled external services.
 
-Give the agent a small fixed mission envelope, for example four attempts, depth two, one live target at a time and explicit token/disk/deadline limits. These are experimental parameters, not recommended universal defaults. The agent must choose at least one checkpoint/rewind itself, publish a useful failed-attempt observation, retrieve it after the reset and produce a candidate that the independent validator can accept or reject.
+Pin the source/image/configuration, actual adapter/backend build, host and guest kernels, fixture histories and oracle version before the run. Before agent trials, restore the declared stopped disk twice, verify baseline hashes and independent writes, and verify fresh identities. An uncaptured required volume fails admission. The pinned Microsandbox example is a useful smoke-test lead, not proof of that full scope [M1]; its floating example image tag must be replaced by an experiment digest.
+
+Give the agent a small fixed mission envelope, for example four attempts, depth two, one live target at a time and explicit token/disk/deadline limits. These are experimental parameters, not recommended universal defaults; this baseline is smaller than the multi-round history in section 14. The agent must choose at least one checkpoint/rewind itself, publish a useful failed-attempt observation, retrieve it after the reset and produce a candidate that the independent validator can accept or reject.
 
 Success requires more than a plausible final explanation: the restored fixture matches its expected state; an acknowledged lesson survives the reset; the new attempt has a fresh identity; prior cost remains charged; unauthorized external effects remain denied; and the exported artifact passes the unchanged validator on a clean base. A deliberately shared writable-disk negative control must fail isolation. A deliberate ledger rewind must fail the budget/revocation checks.
+
+Add one controlled external-effect probe without real publication: a host-side fake service outside S accepts a logical publication intent and deliberately loses its acknowledgement. Route the probe through the broker, not unrestricted target egress. Restore the target and restart the controller. L must still show the same intent as unknown until reconciled; reliable receipt lookup or the fixture's defined idempotency contract must prevent a second fake publication. With neither mechanism available, the correct outcome is blocked/quarantined, not success. Resetting the fake service with S would hide the bug this test is meant to find.
+
+Include controller-kill probes around the local promotion transaction and interrupted pruning, alongside stale-generation and missing-resource negative controls. These test process-crash recovery only. Host-power-loss or storage-loss claims need their own fault setup and durability evidence.
 
 Run a bounded comparison with the same task fixtures and cost accounting: sequential reset without retained K, sequential reset with K, and then optional bounded parallel forks with K. Record trial count, model identifier/provider configuration, task and fixture revisions, budget, success criterion and uncertainty. Do not hide failures or report only the best branch. Separate wall-clock speedup from better success per token/cost; shared information makes sibling samples correlated.
 
@@ -393,10 +426,16 @@ The [shared-store exploration](shared-nix-store-microvm-fabric.md) supplies rela
 
 ## 18. References and evidence limits
 
-The pinned sources below are a starting evidence set. Source claims are not independent benchmark results or conformance certification. This draft inspected selected repository documentation and Workestrate's lockfile; it did not audit complete VMM implementations, verify all transitive pins, run a microVM or assess production safety.
+The pinned sources below are a starting evidence set. Source claims are not independent benchmark results or conformance certification. This draft inspected selected repository documentation, Workestrate's lockfile/control types, and the pinned Microsandbox example and dependency declarations. It did not audit complete VMM implementations, verify every resolved transitive dependency, run a microVM or assess production safety. Newly added source inspections and the unversioned explanatory references are dated 2026-09-11.
 
 [W1]: https://github.com/rybskiworks/workestrate/blob/09e63162e856541f59fe011c24864bc3845a6ebc/README.md
 [W2]: https://github.com/rybskiworks/workestrate/blob/09e63162e856541f59fe011c24864bc3845a6ebc/flake.lock
+[W3]: https://github.com/rybskiworks/workestrate/blob/09e63162e856541f59fe011c24864bc3845a6ebc/control/agentctl/src/control_plane/types.rs
+[M1]: https://github.com/rybskiworks/microsandbox/blob/8ae14c22963c0680b231f61280f43db364693a5c/examples/rust/snapshot-fork/bin/main.rs
+[M2]: https://github.com/rybskiworks/microsandbox/blob/8ae14c22963c0680b231f61280f43db364693a5c/Cargo.toml
+[M3]: https://github.com/rybskiworks/microsandbox/blob/8ae14c22963c0680b231f61280f43db364693a5c/flake.nix
+[FC1]: https://github.com/firecracker-microvm/firecracker/blob/9157d2e973bc59aaecce55976a695b669a611c69/docs/snapshotting/snapshot-support.md
+[R1]: https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/
 [C1]: https://github.com/unixshells/clone/blob/a9525154846e709bd46a7aeb64ceb1fb43547ee2/README.md
 [F1]: https://github.com/deeplethe/forkd/blob/07a1ffb1543c0f7e12719064c881ae769cf4dcec/README.md
 [F2]: https://github.com/deeplethe/forkd/blob/07a1ffb1543c0f7e12719064c881ae769cf4dcec/docs/design/branching.md
@@ -404,6 +443,10 @@ The pinned sources below are a starting evidence set. Source claims are not inde
 
 - [W1: Workestrate positioning and documented baseline][W1], inspected on `migration/tool-model` at the pinned revision, not assumed from `main`.
 - [W2: Workestrate's actual selected dependency pins][W2], particularly `microsandbox-fork` and `libkrunfw`.
+- [W3: Workestrate's inspected launch and control-operation contract][W3], a precedent rather than an implemented Yggdrasil interface.
+- [M1: Stopped-sandbox snapshot and fresh-boot example][M1], read but not executed; [M2: Cargo dependency declarations][M2] and [M3: firmware input pin][M3] at the selected Microsandbox revision.
+- [FC1: Firecracker snapshot scope and private-memory restore][FC1], including user-managed disks, connection limitations and backing-file lifetime, not an integration qualification.
+- [R1: Amazon Builders' Library on safe retries and idempotent APIs][R1], including caller-provided intent IDs, ambiguous completion, changed intent and retry horizons.
 - [C1: Clone's documented snapshot/fork model and explicit status limitations][C1], including the distinction between advertised overlay operation and unfinished persistent per-fork disk overlay.
 - [F1: forkd's current pinned README][F1], including asynchronous live-branch prerequisites and mode-specific integration caveats.
 - [F2: forkd's older branching design][F2], useful for historical protocol questions but not a substitute for the newer implementation or current-mode tests.
