@@ -59,9 +59,10 @@ class RepositoryPolicy(unittest.TestCase):
         self.assertEqual(ci["type"], "required_status_checks")
         self.assertTrue(ci["parameters"]["strict_required_status_checks_policy"])
         self.assertEqual(ci["parameters"]["required_status_checks"], [
-            {"context": "Documentation integrity", "integration_id": None}
+            {"context": "Documentation integrity"}
         ])
-        # Null is deliberate only because this template is disabled and unqualified.
+        # Omit the optional integer until the observed check app is explicitly bound.
+        # The disabled, unbound definition is not ready to activate.
         self.assertEqual(self.rules["main-ci.json"]["enforcement"], "disabled")
 
 

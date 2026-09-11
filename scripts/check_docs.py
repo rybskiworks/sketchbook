@@ -89,11 +89,14 @@ def check_markdown(
                 continue
             name = unquote(url.path)
             candidate = (root / name.lstrip("/")) if name.startswith("/") else (path.parent / name)
+            # Reject lexical symlink components before resolving them. This also
+            # avoids version-dependent Path.resolve() behavior for symlink loops.
+            if symlink_in_path(candidate, root):
+                errors.append(f"local target must not use a symlink: {target}")
+                continue
             resolved = candidate.resolve()
             if not resolved.is_relative_to(root):
                 errors.append(f"link escapes the repository: {target}")
-            elif symlink_in_path(candidate, root):
-                errors.append(f"local target must not use a symlink: {target}")
             elif not resolved.exists():
                 errors.append(f"missing local target: {target}")
             elif tracked_paths is not None:
@@ -102,14 +105,16 @@ def check_markdown(
                     present = any(item.is_relative_to(resolved) for item in tracked_paths)
                 if not present:
                     errors.append(f"local target is not Git-tracked: {target}")
-        except ValueError as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             errors.append(f"invalid local target {target!r}: {exc}")
     return errors
 
 
 def check_svg(path: Path) -> list[str]:
-    if path.is_symlink():
-        return ["SVG source must not be a symlink"]
+    # The CLI starts from a resolved repository root, but descendants can still
+    # be symlinks. Inspect lexical parents before opening or parsing the source.
+    if any(part.is_symlink() for part in (path, *path.parents)):
+        return ["SVG source must not use a symlink"]
     text = path.read_text(encoding="utf-8")
     if re.search(r"<!\s*(DOCTYPE|ENTITY)\b", text, re.I):
         return ["SVG must not declare a DTD or entity"]
