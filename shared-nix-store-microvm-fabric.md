@@ -747,20 +747,20 @@ This lifecycle should be visible through `plan`, `inspect`, or equivalent comman
 
 ---
 
-## 18. Current rybskiworks stack and required changes
+## 18. Implementation baseline and remaining capability work
 
-This section describes implementation status, not the architecture contract.
+This section separates an immutable source baseline from the proposed architecture. Branch names and package versions are not evidence that a deployment has these capabilities. Resolve the selected Workestrate flake and Cargo locks, then test the resulting runtime and guest image. The examples in this document are proposed configuration, not accepted Workestrate syntax.
 
 ### 18.1 Workestrate
 
-The current `rybskiworks/workestrate` default branch still packages upstream Microsandbox `0.5.6` from release artifacts in [`nix/packages/microsandbox.nix`][workestrate-msb-package].
+Workestrate revision [`6c0672ef`][workestrate-source-baseline] pins the `rybskiworks/microsandbox` fork at `8ae14c22963c0680b231f61280f43db364693a5c` in its flake, with runtime packages and SDK patches selected from that same source. This supersedes the older upstream `0.5.6` release-artifact packaging; it is not a claim about which revision a particular fleet currently selects.
 
-That means Workestrate is currently not consuming the newer `rybskiworks/microsandbox` fork through that package.
+That source integration does not implement the shared-store generation, publication, or memory-sharing design proposed here.
 
-Required work includes:
+Work for this design includes:
 
-- replace the old upstream binary package with a reproducibly pinned intended backend build;
-- introduce backend capability reporting;
+- retain coherent, reproducibly pinned runtime, SDK, and guest-kernel inputs;
+- extend capability reporting for the store and memory semantics required here;
 - add store-generation objects and leases;
 - add shared-lower/private-upper lifecycle management;
 - add guest initialization for OverlayFS + Nix `local-overlay`;
@@ -772,18 +772,11 @@ Required work includes:
 
 ### 18.2 Microsandbox
 
-The current `rybskiworks/microsandbox` fork identifies itself as `0.6.17`, while Workestrate currently packages upstream `0.5.6`.
+The pinned Microsandbox source baseline [`8ae14c22`][rybskiworks-msb-cargo] identifies itself as `0.6.18`. Inspect that revision's Cargo and Nix dependencies rather than assuming an update in another repository is already consumed.
 
-Its root [`Cargo.toml`][rybskiworks-msb-cargo] currently pins:
+Changes made only in `rybskiworks/libkrun` or `libkrunfw` do not automatically appear in a selected Microsandbox build. Preserve the dependency chain and verify the actual built artifacts.
 
-```toml
-msb_krun = "=0.1.32"
-msb_krun_utils = "=0.1.32"
-```
-
-Therefore changes made only in `rybskiworks/libkrun` do not automatically appear in Microsandbox. The fork chain needs a reproducible dependency strategy.
-
-Microsandbox needs generic capabilities for:
+Assess and, where absent, implement generic backend capabilities for:
 
 - hard read-only directory export;
 - root reflink/CoW cloning;
@@ -796,9 +789,9 @@ The Nix-generation concept should remain in Workestrate. Microsandbox only needs
 
 ### 18.3 libkrun
 
-The current `rybskiworks/libkrun` `krun` branch header exposes `krun_add_virtiofs` and `krun_add_virtiofs2` in [`include/libkrun.h`][rybskiworks-libkrun-header].
+The selected libkrun [`API header`][rybskiworks-libkrun-header] and implementation must be checked together with the caller's dependency pin.
 
-Current upstream libkrun has additionally evolved explicit read-only virtio-fs support. The fork should be reconciled so that a Workestrate lower-store attachment can rely on an actual read-only export rather than guest convention.
+A Workestrate lower-store attachment must rely on an actual read-only export rather than guest convention. An available header declaration alone does not prove that the deployed VMM uses that path or enforces the requested mode.
 
 For KSM, libkrun needs an opt-in API that marks only eligible guest RAM mappings `MADV_MERGEABLE` and reports whether the requested mode is effective.
 
@@ -841,7 +834,7 @@ The implementation should include tests for:
 - remount behavior;
 - lower-only paths remaining immutable.
 
-Nix issue [`#16269`][nix-overlay-gc-issue] documents a current finite-limit/automatic-GC problem relevant to `local-overlay`. Until a released fix is verified, the deployment should pin or patch Nix accordingly and carry a regression test.
+Nix issue [`#16269`][nix-overlay-gc-issue] reports a finite-limit/automatic-GC problem relevant to `local-overlay`. Check the selected Nix revision against the reported defect and any fix, and carry a regression test rather than assuming that a newer version resolves it.
 
 ---
 
@@ -1013,7 +1006,7 @@ The architecture is successful only if these values improve materially at fleet 
 
 ### Phase 5: root/image density
 
-- move Workestrate to the intended current Microsandbox fork;
+- validate the selected Microsandbox fork's root-storage behavior;
 - use reflink/CoW root cloning where available;
 - shrink base images by moving reusable closures into the shared Nix lower;
 - add physical-allocation metrics.
@@ -1128,10 +1121,10 @@ That is the level Workestrate should orchestrate.
 - [libkrun][libkrun]
 - [libkrun API header][libkrun-header]
 
-### Current rybskiworks integration points
+### Rybskiworks source and integration references
 
 - [Workestrate][workestrate]
-- [Workestrate Microsandbox package][workestrate-msb-package]
+- [Workestrate immutable source baseline][workestrate-source-baseline]
 - [rybskiworks/microsandbox][rybskiworks-msb]
 - [rybskiworks/microsandbox `Cargo.toml`][rybskiworks-msb-cargo]
 - [rybskiworks/libkrun][rybskiworks-libkrun]
@@ -1152,9 +1145,9 @@ That is the level Workestrate should orchestrate.
 [libkrun]: https://github.com/containers/libkrun
 [libkrun-header]: https://github.com/containers/libkrun/blob/main/include/libkrun.h
 [workestrate]: https://github.com/rybskiworks/workestrate
-[workestrate-msb-package]: https://github.com/rybskiworks/workestrate/blob/main/nix/packages/microsandbox.nix
+[workestrate-source-baseline]: https://github.com/rybskiworks/workestrate/blob/6c0672efb376ceb860a0a5a339bf6b550a94fea2/flake.nix
 [rybskiworks-msb]: https://github.com/rybskiworks/microsandbox
-[rybskiworks-msb-cargo]: https://github.com/rybskiworks/microsandbox/blob/main/Cargo.toml
+[rybskiworks-msb-cargo]: https://github.com/rybskiworks/microsandbox/blob/8ae14c22963c0680b231f61280f43db364693a5c/Cargo.toml
 [rybskiworks-libkrun]: https://github.com/rybskiworks/libkrun
 [rybskiworks-libkrun-header]: https://github.com/rybskiworks/libkrun/blob/krun/include/libkrun.h
 [rybskiworks-libkrunfw]: https://github.com/rybskiworks/libkrunfw
