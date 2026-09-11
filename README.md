@@ -22,6 +22,7 @@ Explore alternatives, make assumptions explicit, and leave enough evidence for t
 | [Compartmentalized NixOS workstation](explorations/compartmentalized-nixos-architecture-seed.md) | Can isolated application environments still feel like one coherent desktop? |
 | [Shared Nix store fabric](explorations/shared-nix-store-microvm-fabric.md) | How much immutable state can a microVM fleet share without sharing authority or mutable state? |
 | [Workestrate testing philosophy](explorations/workestrate-testing-philosophy.md) | How do we explore a stateful system's failures instead of merely testing its happy paths? |
+| [Yggdrasil: agent-directed branching](explorations/yggdrasil.md) | Can an agent revisit an earlier world while retaining useful lessons from the futures it explored? |
 
 The [reading guide](explorations/README.md) connects these threads. The [issue tracker](https://github.com/rybskiworks/sketchbook/issues) holds questions that have not become notes yet.
 
