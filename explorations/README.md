@@ -14,9 +14,13 @@ This catalogue connects the long-form explorations. Their original bodies and st
 
 **Start with the agent's exploration:** [Yggdrasil](yggdrasil.md) drafts a time-traveling-agent harness: the agent can request checkpoints, forks and rewinds, retain scoped evidence from its siblings, and trace an evolutionary path toward a solution. Execution is resettable only within a declared boundary; knowledge, authority and external effects have different lifecycles. The draft proposes a storage-first experiment and keeps Clone, forkd and Workestrate adapter capabilities explicitly qualified.
 
+**Start with the agent runtime:** [A continual RLM on DeepSeek Harness](continual-rlm-on-deepseek-harness.md) compares pinned Pi, Prime Agent, DSH and an existing continual-harness plugin. It proposes native composition for persistent Python, recursive children and evidence-backed artifacts while keeping authority, knowledge and recovery boundaries distinct.
+
 ## how the threads connect
 
 The workstation sketch describes a possible consumer of isolation and orchestration. The store sketch investigates one part of making many isolated workloads economical. The testing sketch asks how to establish that lifecycle, policy, persistence, and recovery behave correctly. Yggdrasil investigates agent-directed use of those primitives while retaining what previous attempts learned.
+
+The continual-RLM sketch investigates a possible agent substrate and reusable knowledge layer. Yggdrasil could add execution-world branching to that substrate, but persistent Python, conversational forks and VM checkpoints remain different capabilities. Neither exploration assumes an implemented Workestrate adapter.
 
 They are related investigations, not a single approved architecture. Shared vocabulary should make comparisons easier without forcing every idea into Workestrate.
 
