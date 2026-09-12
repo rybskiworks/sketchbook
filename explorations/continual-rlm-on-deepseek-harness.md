@@ -6,6 +6,18 @@
 >
 > Related exploration: [Yggdrasil](yggdrasil.md). The integration discussed here is proposed, not an assertion that either runtime already implements the other's interfaces.
 
+## Reading routes
+
+| Start here | Continue with |
+| --- | --- |
+| [The answer and evidence](#1-the-question-and-the-proposed-answer) | Sections 1-6: source pins, implementation correspondence, equivalence criteria and alternatives. |
+| [Architecture and execution](#7-proposed-composition-and-ownership) | Sections 7-11: composition, persistent Python, the host bridge, recursive children and budgets. |
+| [Continual artifacts](#12-the-continual-artifact-domain) | Sections 12-16: knowledge scopes, persistence, promotion, refinement, prompt projection and skills. |
+| [Recovery and authority](#17-durable-history-and-recovery-semantics) | Sections 17-20: state domains, security, lifecycle, Workestrate and Yggdrasil. |
+| [Implementation and migration](#21-existing-continual-harness-plugin-reuse-without-overclaiming) | Sections 21-23: existing community code, concrete integration locations and Prime workflow migration. |
+| [Experiments and decision criteria](#24-smallest-useful-experiment) | Sections 24-27: baselines, fault injection, implementation stages and reasons to change direction. |
+| [Pinned references](#28-references-and-evidence-map) | Source inventory and the evidence behind each implementation claim. |
+
 ## 1. The question and the proposed answer
 
 Prime Agent is built on Pi. What would the equivalent look like if DeepSeek Harness, rather than Pi, supplied its foundation?
@@ -18,7 +30,7 @@ For discussion, this note calls that distribution **Continual RLM on DSH**, and 
 
 There are two particularly important implementation findings:
 
-1. **DSH already supplies more of the foundation than a superficial comparison suggests.** Its programmatic tool calling, continuable subagents, scoped registrations, dynamic prompt context and durable session log provide concrete integration points. A community `dsh-continual-harness` plugin also implements a substantial part of the continual-artifact idea. [D1][D2][D3][D4][C1]
+1. **DSH already supplies more of the foundation than a superficial comparison suggests.** Its programmatic tool calling, continuable subagents, scoped registrations, dynamic prompt context and durable session log provide concrete integration points. A community `dsh-continual-harness` plugin also implements a substantial part of the continual-artifact idea. [D1], [D2], [D3], [D4], [C1]
 2. **DSH's existing code runtime is deliberately not a persistent REPL.** Its contract isolates individual runs and does not own sessions. Hiding cross-cell state inside an ordinary `CodeRuntime` provider would break that contract. Faithful Prime-style execution needs a separate stateful capability, or an explicit upstream contract change, rather than a misleading backend swap. [D5]
 
 The recommended first direction is therefore **native composition plus a new stateful capability**, not a wholesale fork of the DSH loop and not a compatibility layer that reproduces every Pi internal class.
@@ -36,7 +48,7 @@ The implementation discussion is pinned to the following public repository revis
 | DeepSeek Harness | `deepseek-ai/deepseek-harness`, `master` | `c291e7961a515f6d7af9304e7fd1d257929aef26` |
 | Community continual-harness plugin | `jasen215/dsh-continual-harness`, `main` | `d4e336a907d47a7e03562bd1710d1529480dadde` |
 
-These are comparison snapshots, not an assertion that Pi's current head is Prime's exact fork point. Package names, source ancestry and similarly named methods do not establish binary or semantic compatibility. Prime's inspected package manifest reports version `0.9.4` and builds the TUI, AI, agent and coding-agent workspaces together. Its README explicitly acknowledges Pi. That supports treating Prime as a source-integrated, Pi-derived product rather than assuming it is only an external Pi extension. [P1][P2]
+These are comparison snapshots, not an assertion that Pi's current head is Prime's exact fork point. Package names, source ancestry and similarly named methods do not establish binary or semantic compatibility. Prime's inspected package manifest reports version `0.9.4` and builds the TUI, AI, agent and coding-agent workspaces together. Its README explicitly acknowledges Pi. That supports treating Prime as a source-integrated, Pi-derived product rather than assuming it is only an external Pi extension. [P1], [P2]
 
 DSH describes itself as a developer preview with breaking changes. The design should therefore qualify a complete composition at exact revisions, rather than target an unspecified "latest DSH." [D1]
 
@@ -58,7 +70,7 @@ A persistent Python variable is working state, not automatically durable knowled
 
 Pi's inspected SDK exposes `createAgentSession`, configurable tools, a resource loader, a session manager, settings and model/auth runtime selection. The integration point is already richer than a raw model API: a caller can choose a tool surface and participate in session lifecycle without writing its own provider loop. [I1]
 
-Prime adds a particular operating model on top of that foundation. Its architecture separates clients, daemon supervision, session workers, agent sessions and Python kernels. The Python side is the model-facing control environment; TypeScript retains ownership of child execution, model access, persistence and accounting. A typed host-request bridge crosses that boundary. [P3][P4]
+Prime adds a particular operating model on top of that foundation. Its architecture separates clients, daemon supervision, session workers, agent sessions and Python kernels. The Python side is the model-facing control environment; TypeScript retains ownership of child execution, model access, persistence and accounting. A typed host-request bridge crosses that boundary. [P3], [P4]
 
 That ownership split is the important thing to transplant. Copying the Python syntax while allowing the Python process to launch arbitrary untracked model clients would reproduce the appearance of an RLM while losing the accounting and lifecycle properties that make it manageable.
 
@@ -76,7 +88,7 @@ A port must distinguish all three layers: the model-facing Python API, the bridg
 
 ### 3.2 The continual layer is supplemental state
 
-Prime's inspected Python store has four entry kinds: `prompt`, `memory`, `skill` and `subagent`, with local and global scopes. Its TypeScript refinement subsystem emits create/update/delete proposals, records before/after values and supports rollback records. The base prompt remains outside the editable artifact set. Python skill references require an import and callable or call pattern; a descriptive skill entry is not the same operation as installing arbitrary source code. [P5][P6]
+Prime's inspected Python store has four entry kinds: `prompt`, `memory`, `skill` and `subagent`, with local and global scopes. Its TypeScript refinement subsystem emits create/update/delete proposals, records before/after values and supports rollback records. The base prompt remains outside the editable artifact set. Python skill references require an import and callable or call pattern; a descriptive skill entry is not the same operation as installing arbitrary source code. [P5], [P6]
 
 This suggests a portable semantic core: **small, reviewable changes to explicitly scoped artifacts, attached to evidence and an expected improvement**. The exact file format, UI command and planner implementation can change without losing that core.
 
@@ -86,19 +98,19 @@ The table distinguishes a correspondence from a claim of identical behavior.
 
 | Concern | Pi foundation | Prime's inspected behavior | DSH-native counterpart or gap |
 | --- | --- | --- | --- |
-| Agent construction | `createAgentSession` with tools, model runtime and session manager. [I1] | Root and child `AgentSession` instances coordinated by Prime's runtime. [P3][P4] | `ctx.agents` and the default agent-loop plugin; keep their lifecycle rather than introduce a competing loop. [D2] |
+| Agent construction | `createAgentSession` with tools, model runtime and session manager. [I1] | Root and child `AgentSession` instances coordinated by Prime's runtime. [P3], [P4] | `ctx.agents` and the default agent-loop plugin; keep their lifecycle rather than introduce a competing loop. [D2] |
 | Model access | Provider-independent agent core plus SDK model/runtime integration. [I1] | TypeScript host resolves providers and child model selection. [P4] | `ctx.llm`, request preparation and adapter seams. [D2] |
-| Product composition | SDK options, custom tools and resource loading. [I1] | Source-integrated workspaces and additional daemon/kernel machinery. [P2][P3] | Named profiles, ordered bundles and Cordis plugins. [D2] |
-| Model-facing code | SDK allows changing the tool set; this alone does not imply a persistent Python environment. [I1] | Persistent Python REPL is the principal built-in control tool. [P1][P4] | PTC exists, but its code-runtime contract is per-run. Add a distinct stateful service. [D5][D6] |
+| Product composition | SDK options, custom tools and resource loading. [I1] | Source-integrated workspaces and additional daemon/kernel machinery. [P2], [P3] | Named profiles, ordered bundles and Cordis plugins. [D2] |
+| Model-facing code | SDK allows changing the tool set; this alone does not imply a persistent Python environment. [I1] | Persistent Python REPL is the principal built-in control tool. [P1], [P4] | PTC exists, but its code-runtime contract is per-run. Add a distinct stateful service. [D5], [D6] |
 | Tool execution | Configurable built-in and custom tools. [I1] | Python operations and typed host requests reach host-owned behavior. [P4] | Registered canonical-JSON tools, monotonic guards and nested dispatch. [D7] |
 | Recursive delegation | An application can build on agent/session construction. [I1] | `rlm.spawn`, host-owned children, retained registry and later replies. [P4] | Continuable subagents are the nearest semantic match; one-shot providers are a different mode. [D3] |
 | Child communication | Application-specific orchestration is needed for the comparison. | Prime documents explicit parent/child messages and retained agents. [P4] | DSH authorizes adjacent parent/continuable-child messages through the exact live sender. [D3] |
-| Editable artifacts | Resources can be loaded into a session. [I1] | Four-kind local/global ledger and dedicated refinement. [P5][P6] | Community plugin is an existing partial implementation; qualify or adapt it. [C1][C2] |
-| Prompt updates | Session/resource integration surface. [I1] | Host integrates supplemental harness state. [P4][P6] | Ordered sections and cache-safe `PromptContext`, materialized into logged history. [D4] |
+| Editable artifacts | Resources can be loaded into a session. [I1] | Four-kind local/global ledger and dedicated refinement. [P5], [P6] | Community plugin is an existing partial implementation; qualify or adapt it. [C1], [C2] |
+| Prompt updates | Session/resource integration surface. [I1] | Host integrates supplemental harness state. [P4], [P6] | Ordered sections and cache-safe `PromptContext`, materialized into logged history. [D4] |
 | Transcript | Session manager participates in resume and branch context. [I1] | Transcript plus kernel artifacts and child-usage attribution. [P4] | Append-only session events, surface projection and versioned persistence. [D2] |
 | Kernel revival | Not established by the inspected Pi SDK. | Optional namespace snapshots and runtime artifacts. [P4] | New stateful capability must specify cold reconstruction versus snapshot restore. |
-| Long-running work | Do not infer a supervisor contract from SDK construction alone. | Daemon supervisor, per-root worker, scheduling and reconnect. [P3] | Reuse DSH client/agent seams, then qualify process ownership and durable admission separately. [D2][D3] |
-| Security boundary | Tool choice alone is not OS confinement. | Prime explicitly says workers and kernels are not security sandboxes. [P1][P4] | Cordis scopes and tool restrictions are not an OS boundary; confinement remains an external execution-world concern. [D5][D7] |
+| Long-running work | Do not infer a supervisor contract from SDK construction alone. | Daemon supervisor, per-root worker, scheduling and reconnect. [P3] | Reuse DSH client/agent seams, then qualify process ownership and durable admission separately. [D2], [D3] |
+| Security boundary | Tool choice alone is not OS confinement. | Prime explicitly says workers and kernels are not security sandboxes. [P1], [P4] | Cordis scopes and tool restrictions are not an OS boundary; confinement remains an external execution-world concern. [D5], [D7] |
 
 This comparison intentionally does not claim that stock Pi lacks every feature not examined here. It identifies the specific sources needed to explain Prime's design and a DSH replacement.
 
@@ -257,7 +269,7 @@ Protocol errors should be distinct from ordinary tool failures. Unknown fields a
 
 A Python `tools.read(...)` call must reach DSH's registered tool execution path rather than invoking a captured implementation function directly. That retains guards, cancellation, canonical output validation and observation hooks. DSH's tool filters affect inherited registrations, while a scope's own registrations have special treatment; this is another reason to keep authorization in the host rather than infer it from what the model can see. [D7]
 
-Nested execution needs special care. DSH PTC already carries root-call identity and an opaque parent execution token. A Python bridge must use a supported nested-dispatch mechanism with equivalent provenance. It must not let the guest invent parent tokens or disguise a direct native call as an authorized nested call. [D6][D7]
+Nested execution needs special care. DSH PTC already carries root-call identity and an opaque parent execution token. A Python bridge must use a supported nested-dispatch mechanism with equivalent provenance. It must not let the guest invent parent tokens or disguise a direct native call as an authorized nested call. [D6], [D7]
 
 There is also a scheduler hazard: an exclusive outer Python tool cannot hold a lock that its own nested tool calls need to acquire. Reuse or extend DSH's nested execution machinery instead of implementing a second queue that deadlocks under the outer call. A minimal integration test must execute a guarded nested read and an exclusive nested write from one Python cell and prove both ordering and cancellation.
 
@@ -273,7 +285,7 @@ For an isolated deployment, file operations, shell execution, Python and child w
 
 ### 10.1 Use continuable children for Prime-style spawn
 
-DSH has both one-shot and continuable subagents. Its continuable service reserves a child identity, creates an activation, submits the initial message and returns `{ childId, messageId }` when the inbox accepts that message. That is much closer to Prime's current admission-only `rlm.spawn` than a wrapper that waits for a completed result. [D3][P4]
+DSH has both one-shot and continuable subagents. Its continuable service reserves a child identity, creates an activation, submits the initial message and returns `{ childId, messageId }` when the inbox accepts that message. That is much closer to Prime's current admission-only `rlm.spawn` than a wrapper that waits for a completed result. [D3], [P4]
 
 The proposed Python-facing adapter can preserve the recognizable name while returning a DSH-specific handle:
 
@@ -316,7 +328,7 @@ On root shutdown, new child admissions stop first. The owner waits for accepted 
 
 ### 11.1 Model selection is not quota management
 
-The host resolves a child model from a deployment allowlist. An exact requested route that is unavailable fails explicitly unless the caller selected a documented fallback policy. This preserves the intent behind Prime's current exact child-model selection without assuming DSH's provider capability flags are identical. [P4][D3]
+The host resolves a child model from a deployment allowlist. An exact requested route that is unavailable fails explicitly unless the caller selected a documented fallback policy. This preserves the intent behind Prime's current exact child-model selection without assuming DSH's provider capability flags are identical. [P4], [D3]
 
 Quota pooling and provider-account selection should remain below the agent, for example in a deployment-managed model gateway. The agent chooses a permitted capability or model policy, not credentials. A runtime must not manufacture fallback claims such as "equivalent reasoning" when a provider exposes no such equivalence.
 
@@ -332,7 +344,7 @@ Proposed accounting identities include mission, session, provider request, deleg
 
 ### 11.3 Bound breadth as well as depth
 
-An example deployment may set the root depth to zero and cap child depth at three. This is a proposed limit, not Prime's default: Prime's inspected documentation reports a default maximum depth of two. DSH's one-shot `maxDepth` is an absolute child-depth cap, and continuable admission has a distinct capability path. A wrapper must normalize and enforce its own declared semantics rather than pass an integer to unrelated APIs and assume equivalence. [P4][D3]
+An example deployment may set the root depth to zero and cap child depth at three. This is a proposed limit, not Prime's default: Prime's inspected documentation reports a default maximum depth of two. DSH's one-shot `maxDepth` is an absolute child-depth cap, and continuable admission has a distinct capability path. A wrapper must normalize and enforce its own declared semantics rather than pass an integer to unrelated APIs and assume equivalence. [P4], [D3]
 
 Depth alone does not bound exponential fan-out. Also limit live children per parent, live descendants per mission, total spawned children, queued work, Python cells, tool dispatches, wall-clock duration and refinement frequency. Admission should return a typed limit failure or an explicit queued status, never an invisible downgrade from parallel to serial work.
 
@@ -340,7 +352,7 @@ Depth alone does not bound exponential fan-out. Also limit live children per par
 
 ### 12.1 Preserve the useful four-kind model
 
-Prime's four kinds are a good starting vocabulary. A `memory` records a scoped assertion and its evidence. A `prompt` supplies a narrow behavioral addendum. A `skill` describes or references a reusable capability. A `subagent` describes a delegation role. Their shared storage shape does not mean they have identical trust or promotion rules. [P5][P6]
+Prime's four kinds are a good starting vocabulary. A `memory` records a scoped assertion and its evidence. A `prompt` supplies a narrow behavioral addendum. A `skill` describes or references a reusable capability. A `subagent` describes a delegation role. Their shared storage shape does not mean they have identical trust or promotion rules. [P5], [P6]
 
 A proposed artifact record is:
 
@@ -443,7 +455,7 @@ Any rollback is a later mutation referencing the original receipt.
 
 ### 14.2 Triggers and recursion prevention
 
-Manual refinement is the first supported trigger. Later triggers may include a bounded turn interval, pre-compaction review or a mission wrap-up. Prime documents turn-interval and compaction-triggered review; the community DSH plugin also has an automatic gate. Their existence is evidence for the integration pattern, not proof that frequent refinement is beneficial. [P6][C1]
+Manual refinement is the first supported trigger. Later triggers may include a bounded turn interval, pre-compaction review or a mission wrap-up. Prime documents turn-interval and compaction-triggered review; the community DSH plugin also has an automatic gate. Their existence is evidence for the integration pattern, not proof that frequent refinement is beneficial. [P6], [C1]
 
 Planner and evaluator sessions must not recursively trigger the same automatic refinement policy by default. Use an explicit session role and host policy, not a prompt request to "avoid refining." Charge their usage to the mission and impose separate caps so a refinement storm cannot consume the entire work budget.
 
@@ -483,7 +495,7 @@ After compaction, rematerialize the active artifact view and a bounded kernel in
 
 The community plugin's inspected `src/projection.ts` is a useful, concrete starting point. It injects a digest-tracked overview through `agent/pre-step`, uses a plugin-source user message and replaces a previous visible block through a session surface operation. [C2]
 
-Two details need targeted tests against the pinned DSH revision. The first-injection path returns a new `{ kind: 'enter', messages: ... }` object rather than spreading the incoming decision; DSH documents `startsRequestSeries` as a declaration wrapping listeners must preserve. Also, the plugin returns early when its in-memory digest is unchanged, before looking for the overview on the current surface. A compaction that removes that surface node may therefore require an explicit reset or a different projection path. [C2][D2]
+Two details need targeted tests against the pinned DSH revision. The first-injection path returns a new `{ kind: 'enter', messages: ... }` object rather than spreading the incoming decision; DSH documents `startsRequestSeries` as a declaration wrapping listeners must preserve. Also, the plugin returns early when its in-memory digest is unchanged, before looking for the overview on the current surface. A compaction that removes that surface node may therefore require an explicit reset or a different projection path. [C2], [D2]
 
 These are source-level compatibility risks, not measured failures. Test the actual composition, including any other hook that changes the digest state. The proposed default is to evaluate DSH's normal dynamic-context mechanism first; retain a custom pre-step implementation only when its additional behavior is necessary and covered by conformance tests.
 
@@ -491,7 +503,7 @@ Replacing an older surface node and appending changed context at the tail also h
 
 ## 16. Skills, tools and reusable delegation roles
 
-Prime's skill model includes importable Python packages. The community DSH continual plugin instead materializes skill entries as DSH `SKILL.md` bundles under a configured skills directory. This is a meaningful implementation difference: a useful description migration is not executable Python compatibility. [P1][P5][C1]
+Prime's skill model includes importable Python packages. The community DSH continual plugin instead materializes skill entries as DSH `SKILL.md` bundles under a configured skills directory. This is a meaningful implementation difference: a useful description migration is not executable Python compatibility. [P1], [P5], [C1]
 
 A skill import pipeline should distinguish three cases. A descriptive lesson can become an artifact directly after validation. A Python skill reference can be imported as an inactive reference if its package is not installed. An executable package requires a separately reviewed, pinned installation transaction with its capabilities and dependencies recorded.
 
@@ -552,7 +564,7 @@ The proposed invariants are:
 - Tool calls, nested bridge calls and imported skills remain subject to the declared execution-world and egress policy.
 - Cross-scope promotion filters private data and requires the destination's authority, not merely the source session's enthusiasm.
 
-These are requirements to prove, not guarantees supplied by a plugin architecture. Prime warns that its process boundaries are not security sandboxes, and DSH's code-runtime `isolation` string is explicitly informational rather than a security promise. [P1][D5]
+These are requirements to prove, not guarantees supplied by a plugin architecture. Prime warns that its process boundaries are not security sandboxes, and DSH's code-runtime `isolation` string is explicitly informational rather than a security promise. [P1], [D5]
 
 ### 18.1 Authority must not be learned
 
@@ -568,7 +580,7 @@ A public knowledge repository must never receive private traces simply because a
 
 ## 19. Process lifecycle, clients and hot reload
 
-Prime's supervisor and per-root worker architecture provide an explicit example of keeping terminal lifetime separate from accepted work. A DSH-native design should preserve that property at the deployment level without assuming that every DSH launcher is a daemon with equivalent guarantees. [P3][D2]
+Prime's supervisor and per-root worker architecture provide an explicit example of keeping terminal lifetime separate from accepted work. A DSH-native design should preserve that property at the deployment level without assuming that every DSH launcher is a daemon with equivalent guarantees. [P3], [D2]
 
 The headless integration should expose accepted operation IDs, observation streams, final receipts and reconnect cursors. An SDK client disconnect is not automatically a cancellation request. A one-shot launcher can intentionally own its work until exit, but then its contract must say so.
 
@@ -580,7 +592,7 @@ Disposing a Cordis effect removes its registrations; it does not undo completed 
 
 ## 20. Relationship to Workestrate and Yggdrasil
 
-The core distribution should work without a microVM orchestrator. An ordinary isolated test process can establish the first API and lifecycle contracts. Workestrate is a possible later provider of workload execution, image/configuration pins and policy-bound environments; that adapter is proposed here, not described as an existing API.
+The core distribution should work without a microVM orchestrator. A separately owned test process can establish the first API and lifecycle contracts in a trusted synthetic environment; that process separation does not itself provide security isolation. Workestrate is a possible later provider of workload execution, image/configuration pins and policy-bound environments; that adapter is proposed here, not described as an existing API.
 
 The existing Yggdrasil note separates execution state, agent continuation, retained knowledge, supervisory history and external effects. The continual-RLM design fits that split: DSH owns conversational continuation, the kernel/world providers own resettable working state, the artifact plane owns retained knowledge, and the supervisory ledger stays outside the rewind boundary. [Y1]
 
@@ -606,20 +618,20 @@ The plugin does not, merely by implementing continual artifacts, provide Prime's
 
 ## 22. Implementation work mapped to actual seams
 
-The following is a proposed work breakdown. Paths in the evidence column are real inspected upstream locations; package names in the final column are proposed integration ownership.
+The following is a proposed work breakdown. The evidence column distinguishes inspected sources from component locations identified by their documentation; the final column gives proposed integration ownership.
 
 | Work area | Existing implementation parallel | Proposed change or adapter |
 | --- | --- | --- |
 | Composition | DSH `docs/architecture.md`: profiles, bundles and startup-frozen SDK/headless trees. [D2] | Create a qualified bundle/profile without a new launcher. |
-| Stateful kernel | Prime `docs/rlm-runtime.md`: `ReplKernelManager`, lazy kernel, serialized execution and bridge ownership. [P4] | Define `dsh-rlm-runtime`, first provider and generation fencing. |
-| Model-facing Python | Prime `src/core/tools/ipython.ts` is identified by its runtime documentation; DSH `src/core/tools` equivalent is actually `packages/core/tools`. [P4][D7] | Register a new canonical-output tool; do not copy Pi tool-result types. |
-| Nested tool calls | DSH `packages/core/tools/src/ptc.ts` and `ToolExecutionInput` in tools documentation. [D6][D7] | Reuse supported root/parent execution identity and scheduler integration. |
+| Stateful kernel | Prime `packages/coding-agent/docs/rlm-runtime.md`: `ReplKernelManager`, lazy kernel, serialized execution and bridge ownership. [P4] | Define `dsh-rlm-runtime`, first provider and generation fencing. |
+| Model-facing Python | Prime's runtime documentation identifies `packages/coding-agent/src/core/tools/ipython.ts`; DSH's tool contract is documented in `docs/subsystems/tools.md` and implemented under `packages/core/tools`. [P4], [D7] | Register a new canonical-output tool; do not copy Pi tool-result types. |
+| Nested tool calls | DSH `packages/core/tools/src/ptc.ts` and `ToolExecutionInput` in tools documentation. [D6], [D7] | Reuse supported root/parent execution identity and scheduler integration. |
 | Delegation | DSH `packages/subagent/subagent/src/{types,index,continuation}.ts`, as indexed by its subsystem documentation. [D3] | Adapt Python spawn/list/message operations to continuable service semantics. |
 | Artifact domain | Prime `prime-agent-runtime/src/rlm/harness.py`. [P5] | Import concepts and validated records, not concurrent file-writer behavior. |
-| Refinement | Prime `packages/coding-agent/src/core/refinement/refinement.ts`; community coordinator wiring. [P6][C1] | Shared proposal/validation/application coordinator with revision checks. |
-| Prompt projection | DSH `packages/core/system-prompt/src/index.ts`; community `src/projection.ts`. [D4][C2] | Prefer native dynamic context; test request-series preservation and compaction. |
-| Recovery | DSH session log/persistence architecture and Prime kernel artifact documentation. [D2][P4] | Declare recovery levels and reconcile cross-domain receipts. |
-| External world | DSH filesystem/subprocess seams and Yggdrasil state separation. [D2][Y1] | Add an execution-world adapter only after the local contract works. |
+| Refinement | Prime `packages/coding-agent/src/core/refinement/refinement.ts`; community coordinator wiring. [P6], [C1] | Shared proposal/validation/application coordinator with revision checks. |
+| Prompt projection | DSH's system-prompt documentation describes `packages/core/system-prompt/src/index.ts`; community `src/projection.ts` supplies a concrete plugin implementation. [D4], [C2] | Prefer native dynamic context; test request-series preservation and compaction. |
+| Recovery | DSH session log/persistence architecture and Prime kernel artifact documentation. [D2], [P4] | Declare recovery levels and reconcile cross-domain receipts. |
+| External world | DSH filesystem/subprocess seams and Yggdrasil state separation. [D2], [Y1] | Add an execution-world adapter only after the local contract works. |
 
 The first source modification to DSH should be justified by a missing seam demonstrated in a minimal test. If nested tool execution cannot safely be reused by an external stateful consumer, an upstream adapter API may be better than importing an internal scheduler symbol. Internal symbols used by PTC are evidence of an implementation strategy, not automatically a supported external-plugin ABI.
 
