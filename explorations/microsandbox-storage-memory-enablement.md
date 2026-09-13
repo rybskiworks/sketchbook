@@ -4,316 +4,304 @@
 
 **Status:** implementation roadmap and issue decomposition, not an implemented feature release.
 
-**Inspection date:** 2026-09-13. **Initial target:** Linux x86_64. **Scope:** Microsandbox, the dependencies it actually consumes, and upward integration into Workestrate. Storage sharing comes first. KSM, free-page reclamation and complete execution-state CoW restore have separate contracts and milestones.
+**Inspection date:** 2026-09-13. **Initial target:** Linux x86_64. **Scope:** Microsandbox, its actual dependency graph, and upward integration into Workestrate. Storage sharing comes first. KSM, free-page reclamation and complete execution-state CoW restore have separate milestones.
 
-**Evidence boundary:** source inspection and upstream PR metadata/code are evidence here; no Nix/Cargo build, VM boot, KSM activation, filesystem benchmark or live-state change was performed. Tests described below are acceptance requirements, not measured results. A container attempt to obtain a Git checkout failed because it could not resolve github.com, and /dev/kvm was unavailable. The canonical repository unit/docs checks were not run in that environment.
+**Evidence boundary:** source inspection and upstream PR metadata/code, not reproduced runtime results. No Nix/Cargo build, VM boot, KSM activation, filesystem benchmark or live-state change was performed. Acceptance tests below are proposed. The execution container could not resolve github.com to obtain a checkout and had no /dev/kvm. Canonical repository unit/docs checks were not run; no passing CI is claimed.
 
-## 1. Decision summary
+## 1. Recommendation
 
-Do not start by implementing a new copy engine or a new hypervisor. The consumed stack already has reusable immutable image layers, private flat-root cloning with explicit reflink policy, native raw/qcow2 dependency chains, private file-backed guest RAM, free-page reporting, and runtime memory targets. The missing product is a coherent, observable ownership and policy contract connecting these mechanisms to Workestrate. [S3], [S4], [S5], [S7], [S8], [S9], [S15]
+The first implementation should expose and qualify existing primitives, not replace the copy engine or hypervisor. The consumed stack already has reusable immutable image layers, private flat-root cloning with explicit reflink policy, native raw/qcow2 dependency chains, private file-backed guest RAM, free-page reporting and runtime memory targets. What needs building is their ownership, policy, lifecycle and reporting contract through to Workestrate. [S3], [S4], [S5], [S7], [S8], [S9], [S15]
 
-Recommended delivery order:
+Recommended order:
 
-1. Expose existing layered/flat root and clone choices through Workestrate, preserving omitted defaults.
-2. Qualify immutable-base lifetime, stopped disk checkpoints, private child volumes, safe collection and explicit block-chain behavior.
-3. Add optional range-selective KSM enrollment plus host-owned admission and reporting. This can proceed independently of checkpoint work.
-4. Qualify backing-aware memory reclamation and pressure behavior.
-5. Reconcile the newer upstream full-checkpoint/CoW-memory stack, then expose only the operations actually qualified on the selected Linux package tuple.
+1. Expose existing layered/flat root and clone choices through Workestrate without changing omitted defaults.
+2. Qualify immutable-base retention, stopped disk checkpoints, private volumes, collection and block-chain behavior.
+3. Add optional selective KSM enrollment plus host-owned admission/reporting, independently of snapshots.
+4. Qualify backing-aware reclamation and memory pressure behavior.
+5. Reconcile newer upstream full-checkpoint/CoW-memory work, then expose only operations qualified on the complete selected Linux package tuple.
 
-There is no dependency on seamless GUI integration or on adopting a different VMM. The [earlier enablement PR #22](https://github.com/rybskiworks/sketchbook/pull/22) remains a separate desktop roadmap. Its statement that the consumed snapshot SDK is disk-only remains correct, but newer upstream implementation must now be considered rather than designing memory branching from scratch. [S6], [U1], [U2], [U3]
+No milestone requires seamless graphics or a new VMM. [PR #22](https://github.com/rybskiworks/sketchbook/pull/22) remains the separate desktop roadmap. Its statement that the consumed SDK is disk-only remains correct, but newer upstream implementation should now be considered rather than designing memory branching from scratch. [S6], [U1], [U2], [U3]
 
-## 2. Exact inspected dependency graph
+## 2. Inspected dependency graph
 
-These are source/package identities, not proof of installed host state or byte-identical builds.
+These identify inspected source and selected packages, not installed host state or byte-identical builds.
 
-| Layer | Selected identity | Relevance |
+| Layer | Identity | Responsibility |
 | :--- | :--- | :--- |
-| Workestrate | `beaab036fe9fb59f132c83bdb81d443863914d9f`, main | Plans, policy, runtime adapter, Nix composition |
-| Microsandbox | `251b368a868d578ead123071c3e6bc8eec013817`, main, 0.6.18 | Image cache, SDK, runtime process, snapshot and control contracts |
-| Native libkrun | `9c0c8b517d5685672a89a7bf6810ef9a114ec07b`, krun, msb_krun 0.1.34 | Memory mappings, block layers, devices, low-level restore |
+| Workestrate | `beaab036fe9fb59f132c83bdb81d443863914d9f`, main | Plans, policy, adapter and Nix composition |
+| Microsandbox | `251b368a868d578ead123071c3e6bc8eec013817`, main, 0.6.18 | Cache, SDK, runtime, snapshot and control contracts |
+| Native libkrun | `9c0c8b517d5685672a89a7bf6810ef9a114ec07b`, krun, msb_krun 0.1.34 | Block/memory/device primitives |
 | libkrunfw | `d575b13e79368b23246be3d93d7935899dec5a3b`, krunfw | Source-built guest kernel and private device protocols |
-| Patched rust-vmm | `f798d4f274db22a3c458ba756900db2cd03e6fe9`, msb-vm-memory 0.18.0-msb.1 | Shared memory-crate identity and mapping primitives |
+| Patched rust-vmm | `f798d4f274db22a3c458ba756900db2cd03e6fe9`, msb-vm-memory 0.18.0-msb.1 | Mapping primitives and shared memory-crate identity |
 | imago | msb-imago 0.1.5, confirmed in Microsandbox Cargo.lock | Raw/qcow2 storage and explicit open-gate behavior |
-| Effective root tooling | `a403c2c111e24db64feb5748bbba939308048c07` | Workestrate-owned package/toolchain composition |
+| Effective root tooling | `a403c2c111e24db64feb5748bbba939308048c07` | Workestrate package/toolchain composition |
 
-The locked msb-imago checksum is `8563624d245da0b51b13959708758f06d1412cacdd17000b001f5ccae80cf6af`. Record the lockfile and package identity, not merely the compatible version range in the native device manifest. [S2], [S10], [S17]
+The locked msb-imago checksum is `8563624d245da0b51b13959708758f06d1412cacdd17000b001f5ccae80cf6af`. Record the lockfile identity rather than only the manifest's compatible version range. [S2], [S10], [S17]
 
-Workestrate makes the Microsandbox tooling input follow its root tooling. Standalone Microsandbox declares tooling `1120aa22cddf4a9a3424f38aadbebadd8a963c4b`; importing the same Microsandbox source through Workestrate can therefore use a different effective package graph. Preserve both source revisions and output hashes in qualification reports. [S18], [S19]
+Workestrate makes Microsandbox's tooling input follow its root tooling. Standalone Microsandbox declares tooling `1120aa22cddf4a9a3424f38aadbebadd8a963c4b`; the same runtime source can therefore have a different effective package graph through Workestrate. Record source pins and output hashes. The source-built firmware Nix input is also distinct from the vendor submodule/prebuilt-release path. [S18], [S19]
 
-The firmware Nix input is distinct from the upstream vendor submodule/prebuilt-release route. Likewise, the inspected imago and rust-vmm dependencies are not automatically rybskiworks-owned forks. Patch the owner of the missing primitive, and fork or bump only when necessary. Cargo workspace patches must be reconciled at each consuming root; they are not inherited merely because a dependency workspace declares them. [S2], [S10], [S19]
+The inspected imago and rust-vmm dependencies are not automatically rybskiworks-owned forks. Change the owner of a demonstrated missing primitive and fork/bump only when necessary. Reconcile Cargo patches at every consuming workspace root; a dependency's workspace patches are not inherited automatically. [S2], [S10]
 
 ```text
 Workestrate config / plan / admission / inspect
-                  |
-                  v
+                      |
+                      v
 Microsandbox SDK + durable spec + launcher + runtime
-      |                    |                    |
-      v                    v                    v
-image/cache/snapshot    native msb_krun      guest agent/bootstrap
-      |                    |                    |
-EROFS / ext4 / copy     block + memory       libkrunfw kernel
-                           |
-                 imago + msb-vm-memory
-                           |
-                  host filesystem / KVM
-                  host KSM / cgroups
+        |                    |                    |
+        v                    v                    v
+image/cache/snapshot      msb_krun           guest agent/bootstrap
+        |                    |                    |
+EROFS / ext4 / copy       block + RAM         libkrunfw kernel
+                             |
+                   imago + msb-vm-memory
+                             |
+                   host filesystem / KVM
+                   host KSM / cgroups
 ```
 
-The arrows are responsibility boundaries. A guest cannot authorize global host memory tuning, and a declarative desired state is not evidence of an active capability.
+These are ownership boundaries, not permissions. Guest requests do not authorize privileged host tuning.
 
-## 3. Existing mechanisms and their limits
+## 3. Existing mechanisms, missing integration
 
-| Mechanism | Inspected status | Sharing unit | What it does not establish |
-| :--- | :--- | :--- | :--- |
-| Shared OCI EROFS layers | Implemented materialization contract | Immutable layer objects reused across image compositions | Shared physical guest RAM or a complete collector |
-| Layered root with private writable state | Existing default image mode | Immutable lower content, scoped changes | A backup of external mounts or a mutable shared Nix store |
-| Flat root, clone=auto/copy/reflink | Implemented private-root provisioning | Whole private file; reflink may share filesystem extents | Every filesystem supports reflink, or every clone shares extents |
-| Explicit block-CoW chain | Native raw/qcow2 opener exists | Read-only ancestors plus writable head | Complete SDK lifecycle, safe compaction, or implicit path trust |
-| Stopped root snapshot | Consumed SDK supports a restricted OCI path | Captured managed writable root | Live processes, all volumes, or arbitrary root formats |
-| KSM | No control found in inspected native builder/mapping entry points | Eligible identical private anonymous pages | Instant savings, isolated named merge pools, or a VM fork |
-| Free-page reporting / virtio-mem | Native device and runtime state/control exist | Guest-released or unplugged RAM | Guaranteed guest cooperation or immediate host reclaim |
-| Private memory backing | Native mapping primitive exists | Immutable file-backed RAM with private writes | Complete CPU/device/identity restoration through consumed SDK |
-| Full restore / direct memory branch | Newer upstream implementation inspected | Disk + RAM + execution/device/runtime state | Inclusion in the downstream pin or qualification of every device |
+| Mechanism | Inspected state | Remaining contract |
+| :--- | :--- | :--- |
+| Shared OCI EROFS layers | Materialization and reusable layer identity exist | Durable references, collection and measured physical reuse |
+| Layered root | Existing default with immutable lower content and private changes | Workestrate policy, full attachment scope, lifecycle qualification |
+| Flat root cloning | auto/copy/reflink and resolved mode already exist | Upward exposure, strict refusal, sizing/reuse compatibility |
+| Block-CoW chains | Native raw/qcow2 explicit opener exists | Consumer wiring, zero/discard/flush and compaction qualification |
+| Stopped snapshots | Restricted OCI-managed root path exists | Scope, consistency, flat/volume support and child ownership |
+| KSM | No control in inspected native builder/mapping entry points | Selective enrollment, host admission, status and measurements |
+| Reporting / virtio-mem | Native device and runtime controls exist | Backing-aware release, guest convergence and pressure behavior |
+| Private RAM backing | Native MAP_PRIVATE primitive exists | Complete execution/device/identity continuation through SDK |
+| Full restore / branch | Newer upstream implementation inspected | Adoption, downstream reconciliation and final Linux qualification |
 
-This table is not a claim that every listed combination works. Source existence, exposed API, host support, admission, runtime activation and measured benefit must remain separate. [S3], [S4], [S6], [S7], [S8], [S9], [S11], [S12], [S15], [S20], [U1], [U3]
+Source existence, exposed API, host support, admission, activation and measured benefit are different facts. This table does not certify every combination. [S3], [S4], [S6], [S7], [S8], [S9], [S11], [S12], [S15], [S20], [U1], [U3]
 
-### 3.1 Layer reuse is already a storage optimization
+### 3.1 Shared layers and Nix images
 
-The materialization pipeline verifies and caches EROFS by uncompressed OCI diff_id, composes layered metadata by manifest, and can build a flat ext4 artifact from the same verified inputs. Normal pulls reuse valid layers; materialization targets choose which representations to create. The documented locking/publication paths should be extended, not replaced with another cache. [S3]
+The materializer caches EROFS by uncompressed OCI diff_id, composes layered metadata by manifest, and can build flat ext4 from the verified inputs. Normal pulls reuse valid layers; target selection determines which representations are built. Extend existing locks and publication owners rather than creating another cache. [S3]
 
-A common NixOS OCI base can feed many leaves. However, equal Nix store paths in two independently built images do not alone prove equal OCI layer digests, shared imported objects, shared host extents, or shared guest pagecache. Measure each boundary. The existing nix-tooling base/leaf and registration contract is useful input; it is not a reason to rewrite NixOS boot support. [S13]
+A shared NixOS OCI base can feed multiple leaves. Equal Nix paths in independently assembled images do not alone establish equal layer digests, imported-object reuse, shared extents or shared guest RAM. Measure those boundaries independently. Existing base/leaf assembly and registration are reusable inputs, not a reason to rebuild NixOS boot support. [S13]
 
-For the first release, keep the Nix engine and existing guest-owned store model independent of storage sharing. An experimental local-overlay store or exported immutable /nix/store generation may be a later profile, not a requirement. Do not expose the host Nix daemon socket to obtain convenience or sharing.
+Keep the Nix engine and guest-owned store model independent of storage sharing. Exported immutable store generations or local-overlay can be later profiles, not prerequisites. No host Nix daemon socket or live mutable host store needs to be exposed.
 
-### 3.2 Flat reflink roots are an available first implementation slice
+### 3.2 Flat reflinks: the first usable slice
 
-The private flat-root function already supports three distinct requests: auto chooses reflink or sparse copy and returns the resolved mode; copy explicitly copies sparsely; reflink refuses when cloning fails. Growth occurs on the private temporary copy before file synchronization and publication. Reuse this implementation rather than shelling out to cp. [S4], [S5]
+Private flat-root creation already distinguishes auto, copy and reflink. Auto returns the actual mechanism; copy preserves sparsity without requiring shared extents; reflink refuses if the requested clone fails. Private growth and file synchronization precede publication. Reuse these functions instead of shelling out to cp. [S4], [S5]
 
-The useful Workestrate change is to expose these choices, validate them against the actual source/destination filesystem pair, and report the result. Preserve the existing root_disk_mib contract or migrate it explicitly: its current documented scope does not simply accept every flat-root configuration. Existing-instance reuse must report drift rather than change storage behind the user's back. [S1], [S14]
+Workestrate should validate against the actual source/destination pair and expose requested/effective results. Its current root_disk_mib contract does not simply accept every flat-root configuration, so preserve or explicitly migrate that contract. Reusing an existing VM reports drift, rather than silently resizing, reformatting or replacing storage. [S1], [S14]
 
-A reflink is not a hardlink: each child needs an independent inode and writable ownership. Filesystem extent references can survive removal of the source name. By contrast, a qcow child still needs its backing objects. The retention graph must distinguish those dependency types instead of assuming every CoW mechanism has the same parent-lifetime requirement. This is a proposed lifecycle invariant for #24/#25, not a claim that a new collector has been implemented.
+Model reflinks separately from hardlinks and qcow dependencies. Independent reflink inodes retain filesystem extent references even if the original pathname is removed; a qcow child needs its backing objects. Metadata can still retain a reflink's base for reproducibility/export. The collector must understand why a reference exists, not treat every CoW relationship identically.
 
-### 3.3 Native block layering deserves its own correctness gate
+### 3.3 Native block-CoW chains
 
-BlockBackendSpec already opens caller-resolved raw/qcow2 layers in base-to-head order. Predecessors are read-only, the head may be writable, and the imago deny gate prevents header metadata from introducing implicit backing/data-file opens. The explicit-chain path excludes VMDK; this must not be confused with the image pipeline's separate VMDK composition. [S7]
+BlockBackendSpec opens caller-resolved raw/qcow2 layers from base to head, predecessors read-only and only the final head optionally writable. The imago deny gate blocks implicit backing/data-file opens from image metadata. This interface excludes VMDK, despite VMDK being used by a different image-composition path. [S7]
 
-Qualify the missing consumer paths and semantics: capacities, depth, exclusive writers, immutable ancestors, flush propagation, failure latching, explicit zeros, negotiated discard behavior and crash-safe generation publication. A qcow hole, an explicit zero and a deleted upper-layer file are not interchangeable concepts. Do not reclaim storage by punching arbitrary holes in an image format's metadata.
+Qualify capacities, chain depth, exclusive writers, file identity, implicit-path refusal, flush propagation, failure latching, explicit zeros and negotiated discard behavior. A hole, an explicit zero and an OverlayFS whiteout are different operations. Arbitrary hole-punching of image metadata is not a storage-reclaim implementation.
 
-Compaction should publish a new immutable generation and atomically retarget an owned reference after verification. It must not rewrite a shared ancestor under surviving children. It also needs scratch-space admission, interrupted-operation recovery and rules for incremental exports. Upstream growth/compaction work is a starting point, not a promise that all these properties are already qualified locally. [U2], [U3]
+Compaction should create a new immutable generation and switch an owned reference only after verification. Do not rewrite ancestors beneath other readers. Budget scratch space, preserve old roots for snapshots/exporters, and define crash recovery and incremental-export effects. Upstream growth/compaction work is an implementation lead, not local acceptance. [U2], [U3]
 
-## 4. Storage ownership contract to implement
+## 4. Storage ownership and consistency
 
-The following state machine is proposed. Reconcile it with current SDK/DB/image ownership rather than layering a second independent database on top.
+Proposed lifecycle, to be reconciled with existing SDK/DB owners:
 
 ```text
 staging -> verified -> published -> referenced -> retired -> collectible
     |          |           |           |
-    +----------+-----------+-----------+--> recover/reconcile after crash
+    +----------+-----------+-----------+--> crash reconciliation
 ```
 
-A published object records its immutable identity and closure. A live runtime, stopped restorable instance, snapshot, export/import, compaction or pending child creation can retain different parts of that closure. A missing heartbeat is not proof that all references have vanished.
+The durable closure can include image layers, composed metadata, flat bases, sealed block ancestors, checkpoint payloads and Nix registrations. Live guests, stopped restorable instances, snapshots, import/export and in-flight child creation can retain different parts. Expired heartbeats alone cannot authorize deletion.
 
-### 4.1 Required invariants
+Required implementation invariants:
 
-- Only the active private head or upper is writable. The runtime cannot mutate a shared base or a sibling through an alias.
-- Publication cannot expose a partial payload or manifest. Review file and directory durability, not rename alone.
-- GC cannot collect an object still needed by an admitted operation, live instance or durable restoration reference.
-- A runtime-version state directory and a reusable immutable cache are different objects. Sharing one must not silently share the other's mutable DB.
-- A storage-only child starts a fresh execution instance. Capturing a root filesystem alone cannot claim capture of all volumes or external effects.
-- Any requested consistency level or scope not implemented by the backend must fail explicitly.
+- Only the instance-owned upper or head is writable; aliases cannot reach shared bases or siblings.
+- Publication never exposes partial payloads/manifests. Audit file and directory durability, not rename alone.
+- Collection respects live, durable and operation references, including after controller restart.
+- Immutable cache reuse does not require sharing an incompatible mutable MSB_HOME database.
+- A storage-only child cold-boots. Capturing its root cannot claim capture of all attachments or external effects.
+- Unsupported requested scope or consistency fails explicitly before destructive mutation.
 
-These are implementation requirements with positive and negative tests in #24-#26, not findings of demonstrated corruption in the current code.
+These are requirements for #24-#26, not a report of reproduced corruption.
 
-### 4.2 Root, volumes and Nix state
+Every attachment needs a branch policy: private clone, shared read-only reference, explicit external exclusion or refusal. Shared writable storage needs a separate intentional contract. A source mount path is not permission to copy that attachment into every child.
 
-Define branch policy for every attachment: clone privately, share read-only, exclude as an external resource, or reject. Shared writable volumes require a distinct intentional contract. A path merely being mounted in the source is not permission to mount it in every child.
+Keep Nix database/registration and store paths coherent. Do not clone only the database, mutate a shared lower, or collect a lower still needed by a stopped checkpoint. Reuse the [shared-store exploration](shared-nix-store-microvm-fabric.md) and #8 for the broader lifetime model. Active OverlayFS lower mutations have kernel-level constraints. [S13], [K4]
 
-For Nix, registration/database state must remain coherent with its store paths. Cloning only a database, sharing a live mutable lower, or losing the lower generation while a stopped snapshot still references it is invalid. The [shared-store exploration](shared-nix-store-microvm-fabric.md) and #8 own the broader lifetime research; this roadmap owns its runtime implementation edges. Underlying filesystem mutations beneath active OverlayFS mounts are constrained by the kernel contract. [S13], [K4]
+Start stopped-only, with exclusive lifecycle/storage ownership and observed final flush. A DB status or arbitrary sleep is not writer exclusion. Sequential file reflinks of a running multi-volume service do not establish a coherent application checkpoint. Guest quiescence and atomic multi-volume scope require independent tests.
 
-Start with cleanly stopped capture under exclusive lifecycle/storage ownership. A sequence of individual file reflinks from a running multi-volume workload does not establish a coherent application checkpoint. Add bounded guest quiescence and multi-volume capture only with explicit consistency evidence.
+Cold clones also need identity policy for machine IDs, host keys, credential files and cached grants. Not copying RAM does not make inherited persistent authority harmless. Secret-bearing snapshots need access, retention and export controls.
 
-Cold clones also need identity policy. Persistent machine IDs, host keys, credential files and cached grants cannot be treated as harmless because RAM was not copied. Separate base content from per-instance identity and broker authorization.
+## 5. KSM enrollment and host policy
 
-## 5. KSM: native enrollment, host policy, and honest limits
+KSM merges eligible duplicate private anonymous pages and makes later writes private again. It does not deduplicate clean file pagecache. Enrollment, scanner activity and measured savings are distinct; registration can succeed without useful sharing. [K1], [K2]
 
-KSM finds duplicate eligible private anonymous pages and write-protects shared results; later writes become private again. It does not deduplicate clean file pagecache. Enrollment and scanner activity are distinct, and registration alone can succeed without useful sharing. [K1], [K2]
+### 5.1 Native implementation boundary
 
-### 5.1 Correct implementation seam
+Ordinary memory already uses private anonymous mappings. Final libkrun construction also handles private restore, borrowed kernel payloads, hotplug ranges and filesystem/GPU windows. Do not blindly enroll every GuestMemory range. [S8], [S11], [S12]
 
-The inspected vm-memory constructor already provides private anonymous mappings. In libkrun, final memory construction also handles private restore, borrowed kernel payloads, hotplug regions and filesystem/GPU windows. Therefore an indiscriminate loop over every guest address range is not the desired implementation. [S8], [S11], [S12]
+Proposed implementation:
 
-Proposed native behavior:
+1. Classify the final mappings after payload/private-memory replacements by ownership, kind and supported backing.
+2. Apply checked, page-aligned MADV_MERGEABLE only to selected supported guest-RAM VMAs.
+3. Exclude host heaps/secrets, borrowed library/firmware regions, MMIO and filesystem/GPU windows; refuse unqualified TEE/restore combinations.
+4. Handle hotplug/remap and partial advice failure before admission; report eligible and enrolled bytes.
+5. Return compiled support, policy admission, registration, scanner observation and measurements separately.
 
-1. Classify final host mappings by kind, ownership and supported backing after any payload/private-memory replacement.
-2. Enroll only selected guest-RAM VMAs with checked page boundaries and explicit failure handling.
-3. Exclude host heaps and broker/network secrets, borrowed library/firmware mappings, device windows, and unqualified TEE/restore combinations.
-4. Apply the same classification to verified hotplug/remap paths; report eligible and enrolled bytes.
-5. Return capability/admission facts separately from scanner status and measured sharing.
+Libkrun owns range selection. A vm-memory helper is justified only for a reusable safe primitive; Workestrate must not manipulate pointers. Avoid process-wide merging as a shortcut because the VMM also stores unrelated host allocations. Inspect inherited process/service merging policy and normalize or refuse incompatible broad enrollment for strict profiles.
 
-The optional lower-level vm-memory helper should exist only if it cleanly expresses a reusable safe primitive. Libkrun owns which guest ranges are eligible; Workestrate must not manipulate host pointers itself.
+### 5.2 The host, not an app guest, owns scanning
 
-Avoid process-wide merging as a shortcut: the VMM also owns host allocations unrelated to guest RAM. Inspect inherited process/service merging policy, and reject or deliberately normalize incompatible inherited state before admitting a strict configuration. A missing field in a launcher JSON document must not silently enable a default-on behavior.
+The kernel running the VMM owns scanner controls. On a normal host this is outside libkrunfw; with an L1 workload host it can be L1 scanning L2 VMM RAM. Also account for L0 enrollment of the outer domains. This placement follows the host-process memory model. [K1], [S11]
 
-### 5.2 Host and nested-host responsibility
+Do not let a workload start ksmd, write global sysfs, change THP or alter overcommit. An opt-in operator-owned NixOS module can establish prerequisites; doctor reports them read-only. Firmware work is guest-feature qualification, not enabling CONFIG_KSM inside every app image.
 
-The kernel running the VMM owns the KSM scanner and controls. For ordinary application VMs this is the physical host, not libkrunfw inside the application guest. In a nested topology the L1 workload-host kernel can scan its L2 VMM mappings. The proposed host policy must also account for whether L0 enrolls the outer L1 domains. This is a placement consequence of the host-process memory model. [K1], [S11]
+### 5.3 No fictional merge-group security
 
-Keep privileged scanner tuning outside per-workload requests. The generic runtime must not write sysfs, switch host THP policy or alter global overcommit. An opt-in operator-owned NixOS module can establish the host prerequisites; doctor can report them read-only.
+The documented interface provides range enrollment and global scanner settings, including a NUMA choice, not arbitrary isolated pools for fleet names, UIDs or cgroups. Do not advertise a trust_group string as enforcing that boundary. [K1], [K3]
 
-### 5.3 Security admission is not a named merge pool
+Proposed admission must account for all enrolled workloads on the kernel. Separate appropriately configured host kernels or no cross-cohort enrollment are options when independent security domains require it. Check outer-host enrollment too. Treat content-equality sharing and potential timing observability as threat-model inputs, not a guarantee that VM isolation removes side channels.
 
-The documented KSM interface provides range enrollment and global scanner controls, including a NUMA merging choice. It does not expose arbitrary per-fleet, UID or cgroup merge namespaces. Therefore this roadmap must not advertise a trust_group string as enforcement of an isolated pool. [K1], [K3]
+A compromised VMM with permission to change mapping advice is not constrained by a TOML deny. Host confinement owns that authority; compose with #19 rather than claim a builder option alone enforces hostile-process policy.
 
-Proposed admission should allow only an explicitly approved cohort on a kernel where that boundary can be enforced. Separate host kernels or disabled enrollment across cohorts are alternatives when independent security domains are required; verify the outer-host policy too. Treat content-equality sharing and its potential timing observability as threat-model inputs, not as a guarantee that memory isolation alone eliminates side channels.
+### 5.4 Disable and pressure semantics
 
-A compromised VMM able to change its own mapping advice is not constrained merely by a TOML deny. The host launcher/confinement policy must own that authority. This work should compose with #19 rather than claim that a new builder option hardens a malicious host process.
+Stopping scanning does not undo merged pages; unmerging can require substantial memory and fail or trigger pressure. Prefer create-time participation changes initially. No per-workload cleanup should perform global unmerge. [K1]
 
-### 5.4 Disable and pressure behavior
+Budget private growth even when current sharing is high. KSM is an optimization, not a memory reservation. A workload dirtying previously shared pages still needs a defined budget and failure policy; do not admit extra guests solely on an expected deduplication ratio.
 
-Stopping scanning does not undo existing shared pages. Unmerging can require substantial memory and fail or trigger pressure. For the first implementation, prefer create-time participation changes rather than inventing a transparent live rollback. No per-workload cleanup should invoke a global unmerge. [K1]
+## 6. Free-page reclaim and memory targets
 
-Budget for private growth even when observed sharing is high. KSM is an optimization, not a reservation system. A VM which dirties previously shared pages must still have a defined resource-limit and recovery contract; do not launch additional guests solely on an expected deduplication ratio.
+Reporting and virtio-mem control already exist. Extend them rather than create an unrelated balloon daemon. Target/current/max represent different convergence stages; none alone proves physical host reclaim. [S9], [S15]
 
-## 6. Free-page reclamation is a separate capability
+Backing-aware behavior is the key audit. The free-page path uses MADV_DONTNEED and private restore uses MAP_PRIVATE files. Construction already refuses a private-memory/NUMA combination pending backing-aware support. Test release/refault, promised zeroing, unplug/replug and capture tracking for each backing; do not assume identical semantics. [S8], [S11], [S15], [K2]
 
-The stack already has free-page reporting and virtio-mem control. Extend their qualification instead of adding an unrelated generic balloon daemon. Target/current/max memory fields represent different stages of convergence; none alone proves that host physical pages were reclaimed. [S9], [S15]
+This is not a reproduced vulnerability. Build regression evidence for the exact path and promised guest semantics first; refuse combinations that cannot satisfy them. Qualify actual firmware configuration, negotiated devices and observed reporting/offlining before adding kernel patches.
 
-Backing-aware behavior is the central audit requirement. The current free-page path uses MADV_DONTNEED, while private-memory restore uses MAP_PRIVATE files. Memory construction already rejects a private-memory/NUMA combination pending backing-aware behavior. Test release/refault, zeroing, unplug/replug and capture accounting for each supported backing; do not assume an anonymous mapping and an immutable-image mapping behave identically. [S8], [S11], [S15], [K2]
+A guest can delay or refuse memory offlining. Use bounded convergence, floors/ceilings and hysteresis. Host cgroup enforcement remains separate from guest cooperation. Host THP, guest THP, NUMA, swap and KSM need individual measurements before combined tuning is advertised. [S9], [K2], [K3]
 
-This is not a reproduced vulnerability report. First construct a failing or passing regression for the exact path and its promised guest semantics. Where a combination cannot satisfy them, explicit unsupported behavior is preferable to unsafe apparent compatibility.
+## 7. Newer upstream adoption track
 
-The firmware work is role qualification: actual built configuration, negotiated guest devices and observed reporting/offlining. Enabling KSM in libkrunfw is not a host-memory deduplication solution. Avoid adding kernel options until a missing prerequisite is demonstrated.
+States inspected on 2026-09-13: these PRs were merged on September 10 into named stacked development branches. That does not prove inclusion in the selected downstream runtime.
 
-A memory target can be delayed or refused by the guest, especially with pages that cannot be offlined. Use bounded convergence, explicit floors/ceilings and hysteresis. Host cgroup enforcement and admission remain separate from guest cooperation. Host THP, guest THP, NUMA, swap and KSM should be tested as distinct controls before combinations are advertised. [S9], [K2], [K3]
-
-## 7. Newer upstream work to adopt, not recreate
-
-The following PR states were inspected on 2026-09-13. All three were merged on September 10 into named stacked development branches. Their status does not establish that Workestrate's selected fork includes them.
-
-| PR | Inspected head | Merge target | Relevant work |
+| PR | Inspected head | Merge target | Relevant implementation |
 | :--- | :--- | :--- | :--- |
-| [Microsandbox #1503][U1] | `ca6ae47ea359cd2ebcf4c6da6ae024a36612f20d` | `appcypher/composite-checkpoint-pr` | Full capture/eager restore, disk-only restore, checkpoint closure and runtime filesystem state |
-| [Microsandbox #1533][U2] | `3645a5d2c36529ca2d973b4011ac94a53f032038` | `appcypher/checkpoint-restore-clone` | Live/stopped private root growth, recovery fencing and captured capacities |
-| [Microsandbox #1537][U3] | `df385fc6e4b4a7c11ba4907fa548a7056ee2b36d` | `appcypher/live-root-disk-growth` | Resident pause/resume, private-memory restore, direct branching and snapshot grouping/export/compaction |
+| [#1503][U1] | `ca6ae47ea359cd2ebcf4c6da6ae024a36612f20d` | `appcypher/composite-checkpoint-pr` | Full capture/eager restore, disk-only restore, checkpoint/runtime filesystem state |
+| [#1533][U2] | `3645a5d2c36529ca2d973b4011ac94a53f032038` | `appcypher/checkpoint-restore-clone` | Live/stopped private root growth, recovery fencing and captured capacities |
+| [#1537][U3] | `df385fc6e4b4a7c11ba4907fa548a7056ee2b36d` | `appcypher/live-root-disk-growth` | Resident pause/resume, private-memory restore, direct branch, grouping/export/compaction |
 
-The #1537 snapshot implementation was inspected in addition to its description. Its typed capture/closure and source-recovery machinery demonstrate a concrete implementation track, not merely a feature request. The consumed SDK still rejects resumable snapshots. Preserve both facts. [S6], [U4]
+The #1537 snapshot source was inspected as well as its description. Typed closure/capture and source-recovery code establishes a concrete adoption track. Meanwhile the consumed SDK still explicitly rejects resumable snapshots. [S6], [U4]
 
-### 7.1 Adoption hazards to resolve
+The newer stack cites native 0.1.35, msb-vm-memory 0.18.0-msb.2 and msb-imago 0.1.7, with package-patching and SDK-name changes. Reconcile downstream mount, CID, SSH, init and Nix deltas before updating pins. Review actual ancestry/diffs and memory-crate identity; do not blindly remove downstream patches because upstream removed its development patches. [U2], [U3]
 
-The newer stack cites native 0.1.35, msb-vm-memory 0.18.0-msb.2 and msb-imago 0.1.7. It also changes package patching and public SDK names. Reconcile all downstream mount, CID, SSH, init and Nix packaging changes before moving pins. A seemingly small consumer change can otherwise select incompatible memory types or runtime/private protocol versions. [U2], [U3]
+Full restore requires RAM, CPU/interrupt/timer state, device queues, filesystem handles, disk/memory generations and activation ordering to agree. A native private mapping or ordinary OS fork of a multithreaded VMM is not that contract. Qualify the final integrated Linux x86_64 build; upstream historical platform reports are not tests rerun here.
 
-Treat implementation as dependency-ordered slices, not one blind PR cherry-pick. Inspect ancestry and actual diffs; qualify the final integrated Linux x86_64 build. Upstream historical platform reports are useful evidence to reproduce, but not tests run here or proof of every final revision. No universal latency/density improvement is asserted.
+Canonical immutable RAM objects privately mapped by multiple children have different pagecache behavior from separate reflinked inodes. Verify physical RAM sharing separately from disk sharing. Read-only descriptors alone do not prevent another writer from mutating or truncating backing files; enforce publication ownership throughout their lifetime. [S8]
 
-Private-memory mapping is only one part of full restoration. CPU/interrupt/timer state, device queues, filesystem handles, immutable disk/memory generations, transport reconnection and activation ordering must agree. A normal OS fork of a multithreaded VMM process is not a substitute for this contract.
+Refresh instance/launch/grant identity, CIDs, endpoints and approved RNG/time generation state. Reauthorize credentials/connections and reject unqualified graphics, passthrough, published-port or nested-device combinations. Never disguise a cold disk boot as live continuation.
 
-Clean memory sharing also depends on object identity. Canonical immutable RAM files privately mapped by multiple children provide a different host pagecache relationship from separate reflinked file inodes. Verify physical memory behavior, not just storage sharing. The native read-only descriptor contract requires the backing to remain unmodified by other writers throughout use. [S8]
+Respect upstream limitations for disk-only incremental exports and new baselines after compaction. Restoring local state cannot reverse external actions. Yggdrasil can later consume the primitives without making Workestrate own model-specific search policy. [U3]
 
-Reauthorize child identity, CID, endpoints, credentials and external connections. Firmware generation/RNG/time hooks are prerequisites to test, not proof every application reinitializes safely. Reject unsupported graphics, passthrough, published-port or nested-device combinations rather than downgrade a requested live continuation to a disk boot.
+## 8. Proposed upward contract
 
-Respect the newer stack's stated limitations, including disk-only incremental-export lineage and new baselines after compaction. Restoring execution never rolls back a remote Git push, payment or other external effect. Yggdrasil can use these primitives later without putting model-specific branching decisions inside Workestrate. [U3]
-
-## 8. Proposed upward-facing contract
-
-This section is a design sketch, not valid current Workestrate syntax. Final names must reuse existing types and compatibility conventions.
+This is illustrative design, not current valid Workestrate syntax. Reuse existing types and compatibility rules when selecting final names.
 
 ```toml
-# PROPOSED ONLY. Do not paste into a current fleet expecting support.
+# PROPOSED ONLY, not an executable current fleet configuration.
 [workloads.example.storage.root]
-layout = "flat"            # alternative: existing layered representation
-clone = "reflink"          # strict; auto may resolve to sparse copy
+layout = "flat"       # alternatively, existing layered representation
+clone = "reflink"     # strict; auto may resolve to sparse copy
 
 [workloads.example.memory_policy]
-ksm = "off"                # proposed: off, prefer, require
+ksm = "off"           # proposed off / prefer / require
 ```
 
-Root capacity must integrate with the existing root_disk_mib declaration rather than silently define a competing value. Clone policy is meaningful only for supported layouts. Image identity is resolved from the normal pinned image declaration; do not turn arbitrary host paths into trusted bases.
+Root sizing must reconcile with root_disk_mib, not add a competing value. Clone policy applies only to supported layouts. Resolve base identity through the ordinary pinned image declaration, not arbitrary untrusted host paths.
 
-The effective record should carry these separately:
-
-| Category | Proposed facts |
+| Record category | Proposed facts |
 | :--- | :--- |
-| Image/storage | Immutable image ID, materializer ABI, root layout, base/ancestor IDs, writable owner, requested/resolved clone method, capacity |
-| Lifetime | Instance and launch IDs, operation ID, durable reference set, parent/checkpoint identity, capture scope and consistency |
-| Memory | Boot/target/current/max, backing kind, KSM request/admission/enrolled ranges, scanner observation, sharing/reclaim measurements |
-| Qualification | Exact runtime/firmware/tooling tuple, host support, policy refusal/degradation reason, test evidence generation |
+| Storage | Image/materializer identity, root layout, ancestors, writable owner, requested/effective clone method, capacity |
+| Lifecycle | Instance/launch/operation IDs, durable references, checkpoint parent, capture scope and consistency |
+| Memory | Boot/target/current/max, backing type, KSM admission/enrollment, scanner observation, sharing/reclaim measurements |
+| Qualification | Runtime/firmware/tooling tuple, host support, refusal/degradation reason, evidence identity |
 
-Do not make supports_cow=true stand in for this model. A backend may support reflink provisioning but not flat snapshots, or KSM enrollment but not private-memory restore.
+A single supports_cow boolean cannot represent those differences. A backend can support reflink provisioning but not flat snapshots, or KSM enrollment but not private-memory continuation.
 
-Persist declared topology and ownership; do not persist host pointers, reusable live descriptors or bearer secrets in a public plan. Decide configuration-hash membership explicitly. Workestrate's current nested policy hash exclusions are not automatically appropriate for disk format, writable ownership or device topology. [S1]
+Persist declared topology and ownership, not host pointers, reusable live descriptors or bearer secrets in public plans. Decide hash membership explicitly; current nested-policy hash exclusions are not automatically appropriate for disk format, writable ownership or device topology. [S1]
 
-Use the existing launch-capability refusal mechanism for required native behavior. Old runtimes must refuse before interpreting an unsupported security/storage setting, rather than ignore a new optional JSON field. Desired/effective skew on reuse must remain visible and non-destructive. [S16]
+Use required launch capabilities so an old runtime refuses unsupported required behavior before mutation rather than silently ignoring a field. Existing-instance skew remains visible and non-destructive. [S16]
 
-## 9. Work packages and issue graph
+## 9. Implementation packages and dependency graph
 
-Each issue includes implementation locations, specific changes and positive/negative tests. Lower-level work is coordinated in sketchbook because the Microsandbox and libkrun fork trackers are disabled; no repository settings were changed. Implementation ownership remains with those components.
+The Microsandbox and libkrun fork trackers are disabled, so their tasks are coordinated here with explicit component owners. No repository settings were changed.
 
-| ID | Deliverable | Owner | Tracking |
+| ID | Deliverable | Owner | Issue |
 | :--- | :--- | :--- | :--- |
-| C01 | Inventory selected graph, formats and effective build identities | Microsandbox + Workestrate | [#23](https://github.com/rybskiworks/sketchbook/issues/23) |
-| C02 | Expose existing layered/flat/clone policy | Workestrate adapter | [workestrate #40](https://github.com/rybskiworks/workestrate/issues/40) |
-| C03 | Immutable closure, leases and conservative GC | Microsandbox cache/SDK | [#24](https://github.com/rybskiworks/sketchbook/issues/24) |
-| C04 | Stopped disk checkpoints and private child volumes | Microsandbox + Workestrate | [#25](https://github.com/rybskiworks/sketchbook/issues/25) |
-| C05 | Block-chain exposure, zero/discard/flush qualification | libkrun + imago + runtime | [#26](https://github.com/rybskiworks/sketchbook/issues/26) |
-| C06 | New-generation compaction and growth recovery | Runtime/image + block backend | [#26](https://github.com/rybskiworks/sketchbook/issues/26), upstream #1533/#1537 |
-| C07 | Selective KSM native enrollment and SDK/launch wiring | libkrun + Microsandbox | [#27](https://github.com/rybskiworks/sketchbook/issues/27) |
-| C08 | KSM policy/admission/status and host-owner boundary | Workestrate + opt-in host module | [workestrate #41](https://github.com/rybskiworks/workestrate/issues/41) |
-| C09 | Backing-aware release and bounded memory convergence | libkrun/runtime/firmware | [#28](https://github.com/rybskiworks/sketchbook/issues/28) |
-| C10 | Upstream full-state CoW restoration adoption | Runtime and selected dependency graph | [#29](https://github.com/rybskiworks/sketchbook/issues/29) |
-| C11 | Restore/branch identity and activation fencing | Runtime + Workestrate broker | [#29](https://github.com/rybskiworks/sketchbook/issues/29), workestrate #39 |
-| C12 | Physical accounting, conformance and fault harness | Native tests -> SDK -> Workestrate | [#30](https://github.com/rybskiworks/sketchbook/issues/30) |
+| C01 | Selected graph, formats and effective build identities | Microsandbox + Workestrate | [#23](https://github.com/rybskiworks/sketchbook/issues/23) |
+| C02 | Existing root layout and clone policy exposure | Workestrate | [workestrate #40](https://github.com/rybskiworks/workestrate/issues/40) |
+| C03 | Immutable closures, leases and conservative GC | Microsandbox cache/SDK | [#24](https://github.com/rybskiworks/sketchbook/issues/24) |
+| C04 | Stopped disk checkpoints and private volumes | Microsandbox + Workestrate | [#25](https://github.com/rybskiworks/sketchbook/issues/25) |
+| C05 | Block-CoW wiring and zero/discard/flush tests | libkrun + imago + runtime | [#26](https://github.com/rybskiworks/sketchbook/issues/26) |
+| C06 | New-generation compaction and growth recovery | Runtime/image/block backend | [#26](https://github.com/rybskiworks/sketchbook/issues/26), upstream #1533/#1537 |
+| C07 | Selective KSM enrollment and SDK/launch wiring | libkrun + Microsandbox | [#27](https://github.com/rybskiworks/sketchbook/issues/27) |
+| C08 | KSM admission/status and host-owner boundary | Workestrate + opt-in host module | [workestrate #41](https://github.com/rybskiworks/workestrate/issues/41) |
+| C09 | Backing-aware reclaim and bounded convergence | libkrun/runtime/firmware | [#28](https://github.com/rybskiworks/sketchbook/issues/28) |
+| C10 | Upstream full-state CoW adoption | Runtime/dependency graph | [#29](https://github.com/rybskiworks/sketchbook/issues/29) |
+| C11 | Branch identity and activation fencing | Runtime + Workestrate broker | [#29](https://github.com/rybskiworks/sketchbook/issues/29), workestrate #39 |
+| C12 | Physical accounting and fault/conformance harness | Native -> SDK -> Workestrate | [#30](https://github.com/rybskiworks/sketchbook/issues/30) |
 
 ```text
 C01 -> C02                              first usable storage-policy slice
-C01 -> C03 -> C04 -> C05 -> C06          durable disk branching and compaction
-C01 -> C07 -> C08                       optional KSM path, no snapshot dependency
+C01 -> C03 -> C04 -> C05 -> C06          durable disk branches and compaction
+C01 -> C07 -> C08                       KSM, independent of snapshots
 C01 -> C09                             reclaim/pressure qualification
-C03 + C04 + C05 + C09 -> C10 -> C11      later full execution-state branching
-C12 runs alongside each slice          evidence is part of each acceptance gate
+C03 + C04 + C05 + C09 -> C10 -> C11      full execution-state branching
+C12 accompanies every slice            tests belong to each acceptance gate
 ```
 
-The early C04 scope can use existing stopped layered-root snapshots; advanced flat/block-chain capture is a later slice. This avoids a circular dependency between basic storage testing and complete block-chain integration.
+Early C04 can use stopped layered-root snapshots; advanced flat/block-chain capture follows separately. This avoids circular dependencies around basic storage validation.
 
-Each accepted implementation slice should be represented in its owner's existing Beads graph with the issue URL and actual prerequisites. These GitHub links are not a claim that Beads has been updated. Do not migrate or initialize a tracker database as a side effect of planning.
+Represent accepted slices in each owner's existing Beads graph with these URLs and actual prerequisites. GitHub issue creation is not a claim that Beads was updated. Do not initialize or migrate tracker databases as part of planning.
 
-Reuse #8 for shared-store lifetime, #7 for branching taxonomy, #17/#19 for broader compartment/confinement work and workestrate #39 for generic capabilities. None is closed by writing this document.
+Reuse #8 for store lifetime, #7 for branching taxonomy, #17/#19 for compartment/confinement work and workestrate #39 for generic capabilities. None is closed by this document.
 
-## 10. Qualification matrix and evidence protocol
+## 10. Qualification and physical accounting
 
-Implement the harness in #30 with explicit already-built runtime and image inputs, sanitized private HOME/MSB_HOME and bounded scratch resources. Reuse nix-tooling's opt-in NixOS runner shape without adding a tooling-to-runtime dependency cycle. [S13]
+Implement #30 with already-built runtime/image inputs, sanitized private HOME/MSB_HOME and bounded scratch resources. Reuse nix-tooling's opt-in NixOS runner shape without introducing a tooling-to-runtime dependency cycle. [S13]
 
-| Experiment | Positive result | Required negative/control |
+| Experiment | Positive evidence | Negative/control |
 | :--- | :--- | :--- |
-| Layered siblings | One base composition, private writes and correct restart | Whiteouts/renames do not affect sibling or lower |
-| Flat clone modes | Effective mode equals request or documented auto resolution | Strict reflink fails on unsupported source/destination pair |
-| Snapshot scope | Captured data and consistency match the manifest | Uncaptured binds/volumes are not reported as restored |
-| Block chain | Parent reads, child writes/zeros/flushes behave correctly | Missing/malformed/implicit backing never admits a writable guest |
-| Publication/GC | All live and durable references stay readable | Crash during publish/retire does not expose partial state or collect a required base |
-| KSM | Touched matching nonzero guest pages share after observation | Off/unique/churn cohorts; later writes remain private |
-| Reclaim | Actual touched RAM released and safely reused | Refused guest shrink, incompatible backing, zero-only false savings |
-| Full memory branch | In-RAM counter continues, parent survives and child diverges | Disk-only child cold-boots; unsupported devices and stale authority refuse |
+| Layered siblings | Shared base composition, private writes, restart | Whiteouts/renames leave sibling and lower unchanged |
+| Flat clones | Effective mode matches strict request or declared auto fallback | Unsupported strict reflink leaves no admitted partial instance |
+| Snapshot scope | Contents and consistency match manifest | Excluded binds/volumes are not reported as restored |
+| Block chain | Correct parent reads, child writes/zeros/flushes | Missing/malformed/implicit backing refuses before writable launch |
+| Publish/GC | Live and durable closures stay readable | Crash cannot expose partial artifacts or collect required bases |
+| KSM | Touched matching nonzero RAM shares after observation | Off/unique/churn cohorts and later private writes |
+| Reclaim | Touched RAM released, measured, safely reused | Guest refusal, incompatible backing, zero-only false savings |
+| Full branch | In-RAM counter continues, source survives, children diverge | Disk child cold-boots; stale authority/unsupported devices refuse |
 
-Measure more than logical sizes. Record provisioning/boot/application-ready latency, operation pause time, storage I/O, dirty growth and failures. For disk, use filesystem-specific exclusive/shared extent accounting or isolated whole-fixture allocation; summing per-file allocated blocks can double-count shared extents. For RAM, distinguish RSS, PSS, private/shared mappings, cgroup charges, host pressure and KSM observations. None alone is a universal measure of total physical cost. [S4], [K1], [K3]
+Measure provisioning/boot/application-ready latency, pause time, storage I/O, dirty growth and failures. Disk accounting needs filesystem-specific exclusive/shared extents or isolated whole-fixture allocation; summed per-file blocks can count shared extents twice. RAM accounting should distinguish RSS, PSS, private/shared mappings, cgroup charges, host pressure and KSM observations. No single number universally expresses total physical cost. [S4], [K1], [K3]
 
-Use matching nonzero data, unique data and real workload phases. Empty demand-paged RAM and sparse files are useful baselines but not evidence of useful application sharing. Do not count unrelated global KSM activity as this fleet's savings. Preserve unsupported/unavailable results, repetitions and raw bounded evidence instead of reporting a single favorable run.
+Use matching nonzero data, unique/changing data and real workload phases. Empty demand-paged memory and sparse files are baselines, not useful application-sharing evidence. Do not count unrelated global KSM activity as this fleet's savings. Preserve unsupported/unavailable states, repetitions and raw bounded evidence.
 
-Keep cold and warm cache conditions explicit. Do not clear global host caches, run destructive GC, enable KSM or create filesystems without an authorized disposable host fixture. Test ENOSPC/EIO, interrupted publication/compaction, simultaneous creators, failed thaw, stale grants, lost control and guest refusal to offline pages. No fixed density or performance target is justified before those workload-specific measurements.
+Keep cold/warm conditions explicit. No global cache dropping, destructive GC, filesystem creation or KSM activation without an authorized disposable fixture. Exercise ENOSPC/EIO, concurrent creators/writers, interrupted publication/compaction, failed thaw, stale grants, lost controllers and guest refusal to offline pages. No fixed density/performance ratio is justified before measurement.
 
-## 11. First implementation milestone
+## 11. First milestone and boundaries
 
-The smallest useful code PR is **workestrate #40**, not a forked hypervisor rewrite: expose the already available root-storage/clone policy, retain current defaults, and produce a truthful requested/effective plan and runtime record. Pair it with bounded two-sibling tests. It can land without KSM or full-memory adoption.
+Start with **workestrate #40**: expose the existing layout/clone policy, preserve defaults, and return truthful requested/effective records, backed by two-sibling tests. It can land without KSM or full-memory adoption.
 
-Next, make storage-only checkpoints and immutable reference ownership operationally safe through #24/#25, then qualify advanced block chains/compaction via #26. In parallel, implement #27's selective native KSM contract and #41's host-policy boundary. Complete #28 before claiming safe dense private-memory restore. Adopt #29 only after reviewing the real upstream stack and preserving downstream contracts.
+Then qualify durable storage ownership and checkpoints through #24/#25, advanced block chains through #26, and selective KSM through #27 plus Workestrate #41. Complete #28 before claiming safe dense private-memory restore; adopt #29 only after reviewing the real upstream stack and preserving downstream contracts.
 
-Changing a dependency pin, switching a host generation or migrating active VM state is a separate reviewed operation. This roadmap and its issues contain no implementation deployment, live tuning, benchmark result or guarantee that a particular workload reaches a target sharing ratio.
+Dependency updates, host-generation switches and active-state migrations remain separate reviewed operations. This document and its issues contain no deployment, host tuning, reproduced benchmark or promise of a target sharing ratio.
 
-## Sources
+## Source map
 
-Repository links below are pinned where source behavior was inspected. Upstream PR pages provide inspection-time status and revision-scoped author reports; their present status may change.
+Repository links are pinned where behavior was inspected. Upstream PR links supply inspection-time status and revision-scoped author reports; their status can change.
 
 [S1]: https://github.com/rybskiworks/workestrate/blob/beaab036fe9fb59f132c83bdb81d443863914d9f/control/agentctl/src/microsandbox/plan.rs
 [S2]: https://github.com/rybskiworks/microsandbox/blob/251b368a868d578ead123071c3e6bc8eec013817/Cargo.toml
 [S3]: https://github.com/rybskiworks/microsandbox/blob/251b368a868d578ead123071c3e6bc8eec013817/crates/image/MATERIALIZATION.md
-[S4]: https://github.com/rybskiworks/microsandbox/blob/251b368a868d578123?unused
+[S4]: https://github.com/rybskiworks/microsandbox/blob/251b368a868d578ead123071c3e6bc8eec013817/sdk/rust/lib/sandbox/flat_rootfs.rs
 [S5]: https://github.com/rybskiworks/microsandbox/blob/251b368a868d578ead123071c3e6bc8eec013817/crates/utils/lib/copy.rs
 [S6]: https://github.com/rybskiworks/microsandbox/blob/251b368a868d578ead123071c3e6bc8eec013817/sdk/rust/lib/snapshot/create.rs
 [S7]: https://github.com/rybskiworks/libkrun/blob/9c0c8b517d5685672a89a7bf6810ef9a114ec07b/src/devices/src/virtio/block/backend.rs
@@ -339,4 +327,4 @@ Repository links below are pinned where source behavior was inspected. Upstream 
 [K3]: https://docs.kernel.org/admin-guide/cgroup-v2.html
 [K4]: https://www.kernel.org/doc/html/latest/filesystems/overlayfs.html
 
-For a separate existing VMM API comparison, see [QEMU memory-backend merge](https://www.qemu.org/docs/master/system/qemu-manpage.html). Its design is a reference, not an additional backend requirement.
+[QEMU memory-backend merge](https://www.qemu.org/docs/master/system/qemu-manpage.html) is a separate existing API reference, not an additional backend requirement.
