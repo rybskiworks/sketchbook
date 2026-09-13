@@ -8,7 +8,7 @@
 
 ## 1. Recommendation
 
-Build the first experiment around the existing Microsandbox/native-libkrun stack, but do not treat enabling its GPU feature as completing desktop isolation. The lower layers already contain substantially more than their currently exposed product interfaces: virtio-gpu, Rutabaga CrossDomain, sound, input-device machinery, guest-init handoff, and NixOS image construction. The immediate work is selective integration, missing native display/input bindings, renderer compatibility, explicit endpoint authorization, and end-to-end qualification. [S2][S3][S4][S5][S6][S7][S8]
+Build the first experiment around the existing Microsandbox/native-libkrun stack, but do not treat enabling its GPU feature as completing desktop isolation. The lower layers already contain substantially more than their currently exposed product interfaces: virtio-gpu, Rutabaga CrossDomain, sound, input-device machinery, guest-init handoff, and NixOS image construction. The immediate work is selective integration, missing native display/input bindings, renderer compatibility, explicit endpoint authorization, and end-to-end qualification. [S2], [S3], [S4], [S5], [S6], [S7], [S8], [S14].
 
 Keep three graphics outcomes separate:
 
@@ -20,7 +20,7 @@ Keep three graphics outcomes separate:
 
 For the first implementation milestone, keep the physical NixOS host's existing desktop, run two isolated application VMs, and prove correct Wayland connection attribution with all convenience sharing disabled. Add explicit text/file transfer next. Qualify accelerated rendering independently. Full outer-desktop virtualization, VFIO ownership, and live memory forks should not block that experiment.
 
-Workestrate is a plausible optional configuration and runtime-adapter layer. It should own declarative intent, resolution, admission, lifecycle and provenance, not become the compositor, host OS, generic driver distribution, or personal fleet. Its current structure already supports that boundary. [S8][S9]
+Workestrate is a plausible optional configuration and runtime-adapter layer. It should own declarative intent, resolution, admission, lifecycle and provenance, not become the compositor, host OS, generic driver distribution, or personal fleet. Its current structure already supports that boundary. [S8], [S9].
 
 ## 2. Exact dependency baseline
 
@@ -44,9 +44,9 @@ Sources: Workestrate's [flake](https://github.com/rybskiworks/workestrate/blob/b
 Two easily missed boundaries:
 
 1. **The native Rust VMM and firmware DSO are different interfaces.** Microsandbox calls the `msb_krun` Rust API. Enabling an option only in the C API or Makefile does not expose it to this runtime. The bundled kernel remains a separate firmware artifact.
-2. **The vendor and Nix firmware paths differ.** Microsandbox's `.gitmodules` points `vendor/libkrunfw` at `superradcompany/libkrunfw`, while the downstream flake selects the rybskiworks firmware pin. An upstream/prebuilt workflow and the downstream Nix build must not be treated as one tested dependency tuple. [S1][S2]
+2. **The vendor and Nix firmware paths differ.** Microsandbox's `.gitmodules` points `vendor/libkrunfw` at `superradcompany/libkrunfw`, while the downstream flake selects the rybskiworks firmware pin. An upstream/prebuilt workflow and the downstream Nix build must not be treated as one tested dependency tuple. [S1], [S2].
 
-The first capability report should record source revisions, Cargo features, registry checksums, firmware ABI/config/patch digests, exact renderer library and server, host driver/kernel, guest Mesa and image closure. A shared Microsandbox source SHA alone does not prove identical composed artifacts when `follows` changes the package set. Cargo workspace patches also need reconciliation at the consuming root; dependency workspaces do not automatically supply a consumer's root patches. [S2][S8]
+The first capability report should record source revisions, Cargo features, registry checksums, firmware ABI/config/patch digests, exact renderer library and server, host driver/kernel, guest Mesa and image closure. A shared Microsandbox source SHA alone does not prove identical composed artifacts when `follows` changes the package set. Cargo workspace patches also need reconciliation at the consuming root; dependency workspaces do not automatically supply a consumer's root patches. [S2], [S8].
 
 ## 3. What is already there, and what remains
 
@@ -65,7 +65,7 @@ The first capability report should record source revisions, Cargo features, regi
 | Disk snapshots | SDK creates snapshots of supported stopped OCI-backed sandboxes | Explicit scope, disk consistency, volume/store lifetime and restore contracts |
 | Resumable memory snapshots | Native memory/control types exist, but SDK rejects `resumable` | Complete capture/restore/device/identity qualification, separately from disk snapshots |
 
-Evidence: [S3][S4][S5][S6][S7][S8][S9][S10][S11]. None of these rows means that enabling every available device is appropriate for every workload.
+Evidence: [S3], [S4], [S5], [S6], [S7], [S8], [S9], [S10], [S11], [S14]. None of these rows means that enabling every available device is appropriate for every workload.
 
 ### A concrete graphics-policy problem
 
@@ -77,7 +77,7 @@ This is a source-level policy mismatch, not proof of an exploited vulnerability.
 
 ### NixOS support is ahead of the seed's open questions
 
-The inspected tooling contract already provides generated stage-2 `/init`, a required volatile `/run`, guest-owned store registration and database, base/leaf registration, and documented opt-in Microsandbox tests covering fresh activation, untrusted builds, two boots and normal poweroff. Those are project-reported results, not tests rerun here. Workestrate already passes the explicit init block to the runtime. [S7][S8]
+The inspected tooling contract already provides generated stage-2 `/init`, a required volatile `/run`, guest-owned store registration and database, base/leaf registration, and documented opt-in Microsandbox tests covering fresh activation, untrusted builds, two boots and normal poweroff. Those are project-reported results, not tests rerun here. Workestrate already passes the explicit init block to the runtime. [S7], [S8].
 
 The next work is a graphical non-root session, correct DBus/logind/runtime directories, proxy/driver configuration, role readiness, and isolation of mutable state. The current common example base is Determinate-specific. That is neither a requirement of the architecture nor permission to replace the physical host's Nix daemon. A Lix or upstream-Nix image profile should be an explicit alternative with its own qualification.
 
@@ -125,9 +125,9 @@ physical NixOS host
 
 The topology is a proposal. A host compositor sees host-side proxy clients; it must receive a trustworthy association to the originating VM. Guest-provided `app_id`, titles, environment variables and client-side decorations are not identity. If the chosen compositor cannot produce trusted labels or accept verified per-connection attribution, that is a real compositor/proxy integration gap, not something fixed inside libkrun.
 
-**Seamless Wayland route.** Crosvm documents a guest Sommelier path over virtio-gpu CrossDomain. Sommelier-rs describes a guest-side Rust rewrite with VM mode and local debugging mode, and explicitly does not target X support. Use these as reference integrations, pin the proxy, and verify libkrun interoperability. Local proxy mode is not a VM test. Ordinary focused input in this route travels through Wayland; it does not require giving each app VM raw host evdev devices. [P1][P2]
+**Seamless Wayland route.** Crosvm documents a guest Sommelier path over virtio-gpu CrossDomain. Sommelier-rs describes a guest-side Rust rewrite with VM mode and local debugging mode, and explicitly does not target X support. Use these as reference integrations, pin the proxy, and verify libkrun interoperability. Local proxy mode is not a VM test. Ordinary focused input in this route travels through Wayland; it does not require giving each app VM raw host evdev devices. [P1], [P2].
 
-**Whole-desktop route.** A guest compositor drives virtual scanouts and consumes virtual input devices; the host displays a window or another presentation endpoint. This is where native display/input bindings, stride/resize/cursor handling and a Linux viewer matter. A full desktop window is a useful fallback or specialized workspace, not equivalent to seamless app windows. The macOS draft is a reference, not a Linux deliverable. [U1482][U118]
+**Whole-desktop route.** A guest compositor drives virtual scanouts and consumes virtual input devices; the host displays a window or another presentation endpoint. This is where native display/input bindings, stride/resize/cursor handling and a Linux viewer matter. A full desktop window is a useful fallback or specialized workspace, not equivalent to seamless app windows. The macOS draft is a reference, not a Linux deliverable. [U1482], [U118].
 
 **Alternative transport.** Waypipe-like remoting can be evaluated as a fallback, but an ordinary vsock byte stream cannot transmit Unix file descriptors by merely relaying their numeric values. Select a transport implementation that reconstructs its resources across the VM boundary and qualify it. Do not assume binding the host Wayland socket through virtiofs provides working or authorized Wayland FD semantics.
 
@@ -144,7 +144,7 @@ The topology is a proposal. A host compositor sees host-side proxy clients; it m
 | Remote input | Separate narrowly scoped grant bound to focus/session | A background guest cannot inject into the host desktop |
 | Signing / SSH | Named request through an external broker, policy and fresh instance binding | Guest cannot extract a key or reuse authority from a replaced instance |
 
-The existing libkrun CrossDomain PipeWire channel is a useful mechanism to investigate. It is not sufficient to grant every guest the ambient host PipeWire socket. Likewise, the ScreenCast portal's `OpenPipeWireRemote` returns a local FD: a cross-VM implementation needs a guest-local portal/session endpoint, brokered host consent, a restricted stream transport, and recreated guest resources. Reuse existing CrossDomain support where it actually carries the needed resource types; do not claim that either a generic vsock stream or a host session-bus mount solves this. [S5][P3]
+The existing libkrun CrossDomain PipeWire channel is a useful mechanism to investigate. It is not sufficient to grant every guest the ambient host PipeWire socket. Likewise, the ScreenCast portal's `OpenPipeWireRemote` returns a local FD: a cross-VM implementation needs a guest-local portal/session endpoint, brokered host consent, a restricted stream transport, and recreated guest resources. Reuse existing CrossDomain support where it actually carries the needed resource types; do not claim that either a generic vsock stream or a host session-bus mount solves this. [S5], [P3].
 
 Continue [interaction research #11](https://github.com/rybskiworks/sketchbook/issues/11) for the threat model. [Integration #21](https://github.com/rybskiworks/sketchbook/issues/21) supplies the bounded two-VM acceptance task.
 
@@ -164,7 +164,7 @@ Gate untrusted graphics on [#19](https://github.com/rybskiworks/sketchbook/issue
 
 ### Guest roles instead of one ever-growing kernel
 
-The consumed firmware already includes virtual graphics/sound/input support. It omits physical USB/media and guest VFIO/IOMMU support in the inspected generic configuration. Keep host kernel requirements, an optional outer GPU-owning guest kernel, and ordinary application-guest requirements separate. A virtual camera/media broker can be evaluated without first enabling physical USB drivers in every application VM. The firmware README's x86 CPU-limit table and actual config differ; derive capabilities from built artifacts and probes, not the prose table. [S4]
+The consumed firmware already includes virtual graphics/sound/input support. It omits physical USB/media and guest VFIO/IOMMU support in the inspected generic configuration. Keep host kernel requirements, an optional outer GPU-owning guest kernel, and ordinary application-guest requirements separate. A virtual camera/media broker can be evaluated without first enabling physical USB drivers in every application VM. The firmware README's x86 CPU-limit table and actual config differ; derive capabilities from built artifacts and probes, not the prose table. [S4], [S15].
 
 The NixOS image is userspace under a runtime-supplied kernel. Adding a NixOS `boot.kernelPackages` choice to that userspace does not automatically replace libkrunfw. If a role needs a different kernel or firmware contract, select and qualify that boot mode explicitly.
 
@@ -176,7 +176,7 @@ The shared-store work should define immutable published generations, per-instanc
 
 ### Several identities, not one overloaded generation
 
-Keep at least the following concepts distinct in the design: runtime build identity, immutable image/store generation, persistent workload identity, concrete instance identity, and fresh launch/grant epoch. Workestrate's binary-keyed MSB_HOME generation and instance slots already solve narrower problems; they must not silently become authority for every other lifetime. [S8][S9]
+Keep at least the following concepts distinct in the design: runtime build identity, immutable image/store generation, persistent workload identity, concrete instance identity, and fresh launch/grant epoch. Workestrate's binary-keyed MSB_HOME generation and instance slots already solve narrower problems; they must not silently become authority for every other lifetime. [S8], [S9].
 
 Microsandbox already distinguishes transient host-vsock listeners from durable guest-to-host routes, reserves guest CIDs, and requires launch capabilities for security-sensitive additions. Preserve those mechanisms. The guest-agent control path is the named virtio-console `agent` protocol, not this new desktop broker. CID is transport attribution, not a complete authenticated workload/grant identity. Fresh listeners, broker grants, cancellation and revocation still need a supervisor-owned lifetime. [S10]
 
@@ -260,15 +260,15 @@ Priority reflects dependency order, not an estimate. The named code paths are in
 
 ### Exact edit seams
 
-**libkrun:** `src/krun/src/api/builders.rs`, `src/krun/src/api/builder.rs`, `src/krun/src/lib.rs`, `src/krun/Cargo.toml`, `src/devices/Cargo.toml`, `src/devices/src/virtio/gpu/virtio_gpu.rs`, related `device.rs`/`worker.rs`, and the in-tree Rutabaga/display/input implementations. Native bindings, capsets/channel configuration, mapping and display behavior belong here. Do not add unrelated policy vocabulary to the guest kernel. [S3][S5][S6]
+**libkrun:** `src/krun/src/api/builders.rs`, `src/krun/src/api/builder.rs`, `src/krun/src/lib.rs`, `src/krun/Cargo.toml`, `src/devices/Cargo.toml`, `src/devices/src/virtio/gpu/virtio_gpu.rs`, related `device.rs`/`worker.rs`, and the in-tree Rutabaga/display/input implementations. Native bindings, capsets/channel configuration, mapping and display behavior belong here. Do not add unrelated policy vocabulary to the guest kernel. [S3], [S5], [S6].
 
-**Microsandbox:** `crates/runtime/Cargo.toml`, `crates/runtime/lib/launch.rs`, `crates/runtime/lib/vm.rs`, `crates/runtime/lib/control.rs`, `sdk/rust/lib/sandbox/builder.rs`, `sdk/rust/lib/sandbox/config.rs`, `sdk/rust/lib/runtime/spawn.rs`, and the authoritative shared types/schema/CLI definitions identified by those paths. Update generated consumers through the repository's actual generation workflow. Preserve the bootstrap protocol, canonical durable representations and launch refusal conventions in `COMPATIBILITY.md`. For snapshots start from `sdk/rust/lib/snapshot/create.rs`, not an invented new snapshot subsystem. [S2][S10][S11][S13]
+**Microsandbox:** `crates/runtime/Cargo.toml`, `crates/runtime/lib/launch.rs`, `crates/runtime/lib/vm.rs`, `crates/runtime/lib/control.rs`, `sdk/rust/lib/sandbox/builder.rs`, `sdk/rust/lib/sandbox/config.rs`, `sdk/rust/lib/runtime/spawn.rs`, and the authoritative shared types/schema/CLI definitions identified by those paths. Update generated consumers through the repository's actual generation workflow. Preserve the bootstrap protocol, canonical durable representations and launch refusal conventions in `COMPATIBILITY.md`. For snapshots start from `sdk/rust/lib/snapshot/create.rs`, not an invented new snapshot subsystem. [S2], [S10], [S11], [S13], [S14].
 
-**libkrunfw:** `config-libkrunfw_x86_64`, kernel patch/build selection and installed provenance/checks. Add a requirement only when the selected role needs it, verify the resulting config after kernel configuration resolution, and keep libkrun-specific poweroff behavior out of a physical-PC kernel. [S4]
+**libkrunfw:** `config-libkrunfw_x86_64`, kernel patch/build selection and installed provenance/checks. Add a requirement only when the selected role needs it, verify the resulting config after kernel configuration resolution, and keep libkrun-specific poweroff behavior out of a physical-PC kernel. [S4], [S15].
 
 **nix-tooling:** `lib.guest`/`nixosModules` exports, documented NixOS image constructors, registration and opt-in smoke contracts. Keep runtime-neutral construction and engine choice separate from operator fleet policy. A runtime test receives the runtime as an explicit input rather than introducing a tooling-to-runtime dependency cycle. [S7]
 
-**Workestrate:** `control/agentctl/src/microsandbox/plan.rs` and its existing `runtime`, `nested`, `broker`, `generation`, `provenance`, `slots` and `depgraph` module seams; then authoritative config/schema and Nix dependency composition. Workstation-specific UI/portal/policy choices belong in a separate consumer. [S8][S9]
+**Workestrate:** `control/agentctl/src/microsandbox/plan.rs` and its existing `runtime`, `nested`, `broker`, `generation`, `provenance`, `slots` and `depgraph` module seams; then authoritative config/schema and Nix dependency composition. Workstation-specific UI/portal/policy choices belong in a separate consumer. [S8], [S9].
 
 ### Dependency shape
 
@@ -338,6 +338,8 @@ Pinned repository sources are the authority for observations above. External doc
 [S11]: https://github.com/rybskiworks/microsandbox/blob/251b368a868d578ead123071c3e6bc8eec013817/sdk/rust/lib/snapshot/create.rs#L25-L97
 [S12]: https://github.com/rybskiworks/libkrun/blob/9c0c8b517d5685672a89a7bf6810ef9a114ec07b/README.md
 [S13]: https://github.com/rybskiworks/microsandbox/blob/251b368a868d578ead123071c3e6bc8eec013817/crates/runtime/lib/vm.rs#L1-L210
+[S14]: https://github.com/rybskiworks/microsandbox/blob/251b368a868d578ead123071c3e6bc8eec013817/crates/runtime/Cargo.toml
+[S15]: https://github.com/rybskiworks/libkrunfw/blob/d575b13e79368b23246be3d93d7935899dec5a3b/README.md
 [P1]: https://doc.crosvm.dev/book/devices/wayland.html
 [P2]: https://github.com/google/sommelier-rs/blob/main/README.md
 [P3]: https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.ScreenCast.html
