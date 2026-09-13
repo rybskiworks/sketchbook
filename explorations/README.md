@@ -10,6 +10,8 @@ This catalogue connects the long-form explorations. Their original bodies and st
 
 **Start with the infrastructure:** [Shared Nix store fabric](shared-nix-store-microvm-fabric.md) explores immutable store generations, private writable overlays, build/cache placement, storage CoW, and memory-sharing options for dense microVM fleets. These mechanisms need distinct capability and correctness contracts.
 
+**Start with implementation:** [Microsandbox storage and memory enablement](microsandbox-storage-memory-enablement.md) traces the consumed image, block and RAM primitives through to Workestrate. It prioritizes existing layered/reflink storage, then qualified checkpoint lifetimes, optional KSM, reclamation and adoption of newer upstream full-memory branching. Pinned source observations, proposed APIs, implementation issues and unrun acceptance tests remain distinct.
+
 **Start with the evidence:** [Workestrate testing philosophy](workestrate-testing-philosophy.md) explores properties, independent observers, generated histories, fault injection, replay, and minimization. It is a testing direction, not a requirement to adopt Antithesis or deterministic hypervisor execution.
 
 **Start with the agent's exploration:** [Yggdrasil](yggdrasil.md) drafts a time-traveling-agent harness: the agent can request checkpoints, forks and rewinds, retain scoped evidence from its siblings, and trace an evolutionary path toward a solution. Execution is resettable only within a declared boundary; knowledge, authority and external effects have different lifecycles. The draft proposes a storage-first experiment and keeps Clone, forkd and Workestrate adapter capabilities explicitly qualified.
@@ -19,6 +21,8 @@ This catalogue connects the long-form explorations. Their original bodies and st
 ## how the threads connect
 
 The workstation sketch describes a possible consumer of isolation and orchestration. The store sketch investigates one part of making many isolated workloads economical. The testing sketch asks how to establish that lifecycle, policy, persistence, and recovery behave correctly. Yggdrasil investigates agent-directed use of those primitives while retaining what previous attempts learned.
+
+The storage/memory roadmap turns selected questions into component-owned implementation work without making live-memory forks or KSM prerequisites for storage sharing. It does not replace the broader store-lifetime or branching-capability investigations.
 
 The continual-RLM sketch investigates a possible agent substrate and reusable knowledge layer. Yggdrasil could add execution-world branching to that substrate, but persistent Python, conversational forks and VM checkpoints remain different capabilities. Neither exploration assumes an implemented Workestrate adapter.
 
