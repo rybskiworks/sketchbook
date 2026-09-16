@@ -16,11 +16,15 @@ This catalogue connects the long-form explorations. Their original bodies and st
 
 **Start with the agent runtime:** [A continual RLM on DeepSeek Harness](continual-rlm-on-deepseek-harness.md) compares pinned Pi, Prime Agent, DSH and an existing continual-harness plugin. It proposes native composition for persistent Python, recursive children and evidence-backed artifacts while keeping authority, knowledge and recovery boundaries distinct.
 
+**Start with engineering coordination:** [Local agentic engineering control plane](local-agentic-engineering-control-plane.md) proposes one human-facing mainframe coordinating durable domain agents and substantial isolated workloads. It connects selective context access and peer handoff to forge-neutral candidates, progressive deterministic and agentic E2E CI, warm Nix baselines, evidence publication and bounded authority. The Workestrate integration investigation is [#66](https://github.com/rybskiworks/workestrate/issues/66).
+
 ## how the threads connect
 
 The workstation sketch describes a possible consumer of isolation and orchestration. The store sketch investigates one part of making many isolated workloads economical. The testing sketch asks how to establish that lifecycle, policy, persistence, and recovery behave correctly. Yggdrasil investigates agent-directed use of those primitives while retaining what previous attempts learned.
 
 The continual-RLM sketch investigates a possible agent substrate and reusable knowledge layer. Yggdrasil could add execution-world branching to that substrate, but persistent Python, conversational forks and VM checkpoints remain different capabilities. Neither exploration assumes an implemented Workestrate adapter.
+
+The engineering-control-plane sketch is a consumer above those boundaries: it owns goals, task routing, CI plans and candidate evidence rather than a new hypervisor or model runtime. Its optional k0s integration reuses the lifecycle investigation in [sketchbook PR #32](https://github.com/rybskiworks/sketchbook/pull/32) and [Workestrate #44](https://github.com/rybskiworks/workestrate/issues/44). The first useful local loop does not require Kubernetes, complete RAM forks or KSM.
 
 They are related investigations, not a single approved architecture. Shared vocabulary should make comparisons easier without forcing every idea into Workestrate.
 
