@@ -25,6 +25,8 @@ Explore alternatives, make assumptions explicit, and leave enough evidence for t
 | [Workestrate testing philosophy](explorations/workestrate-testing-philosophy.md) | How do we explore a stateful system's failures instead of merely testing its happy paths? |
 | [Yggdrasil: agent-directed branching](explorations/yggdrasil.md) | Can an agent revisit an earlier world while retaining useful lessons from the futures it explored? |
 | [A continual RLM on DeepSeek Harness](explorations/continual-rlm-on-deepseek-harness.md) | What would a Prime-style recursive, continually improving agent look like on DSH's plugin architecture? |
+| [k0s vs CubeSandbox vs current Workestrate](explorations/workestrate-k0s-cubesandbox-comparison.md) | How do k0s, CubeSandbox, and k3s compare against the current local-first operator? |
+| [Workestrate fleet control plane](explorations/workestrate-fleet-control-plane-implementation.md) | What gets built, in what order, and where does each fleet piece live? |
 
 The [reading guide](explorations/README.md) connects these threads. The [issue tracker](https://github.com/rybskiworks/sketchbook/issues) holds questions that have not become notes yet.
 
