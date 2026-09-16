@@ -20,6 +20,10 @@ This catalogue connects the long-form explorations. Their original bodies and st
 
 **Start with the fleet build:** [Workestrate fleet control plane](workestrate-fleet-control-plane-implementation.md) sketches the implementation from organization down to Nix packaging, services, and integrations: a separate Go operator repo, CRDs first, CubeSandbox as an optional backend, brokered agent sandboxes, ARC runners, and Qubes-like NixOS fit.
 
+## k0s implementation surge (2026-09-16, branch `agents/k0s-implementation-surge`)
+
+New on this branch: [k0s architecture](k0s-architecture.md), [Go operator patterns](go-operator-patterns.md), [Nix k0s packaging](nix-k0s-packaging.md), [Rust-Go contract](rust-go-contract.md), [fleet CRD design](fleet-crd-design.md), [broker and ARC runners](broker-arc-runners.md), [CubeSandbox deep dive](cubesandbox.md), [pluggable backends](pluggable-backends.md), [k0s milestones](k0s-milestones.md), [Elixir verdict](elixir-verdict.md). Cross-cutting maps from the surge: workstation composition, Yggdrasil mapping, and storage mapping are being folded in as follow-ups; the control-plane sketch and comparison above remain the entry points.
+
 ## how the threads connect
 
 The workstation sketch describes a possible consumer of isolation and orchestration. The store sketch investigates one part of making many isolated workloads economical. The testing sketch asks how to establish that lifecycle, policy, persistence, and recovery behave correctly. Yggdrasil investigates agent-directed use of those primitives while retaining what previous attempts learned.
