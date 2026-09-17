@@ -8,7 +8,7 @@
 Pin detail: commit `d4a93fa` (author DSH 2026-09-14, committer Like Xu 2026-09-16)
 removes a vacuous/flaky `Test_HashCode` (`Cubelet/pkg/utils/strings_test.go`, 31 deletions).
 Repo state at read time: `master` branch, ~12.5k stars,
-description "Instant, Concurrent, Secure & Lightweight Sandbox for AI Agents", Apache-2.0.
+description "Instant, Concurrent, Secure & Lightweight Sandbox for AI Agents", Apache-2.0 with third-party exceptions (LICENSE names additional components; GitHub API reports NOASSERTION).
 Tree at pin: 3,793 blobs. Top layout: `CubeAPI`, `CubeEgress`, `CubeMaster`, `CubeNet`,
 `CubeOps`, `CubeProxy`, `CubeS3lvol`, `CubeShim`, `CubeTemplateCenter`, `Cubelet`,
 `cubecow`, `hypervisor`, `agent`, `sdk`, `examples`, `tests`, `deploy`, `docs`, `web`,
