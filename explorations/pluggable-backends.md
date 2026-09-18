@@ -191,10 +191,10 @@ Workload CR → resolve backend (policy §3) → contract.launch()
             → contract.stop() on delete / replace (finalizer)
 ```
 
-Sibling notes own the details: `crd-design.md` (Workload/RuntimeHost/
+Sibling notes own the details: `fleet-crd-design.md` (Workload/RuntimeHost/
 WorkloadOperation/Checkpoint shapes, fencing, no silent revive),
-`go-operator.md` (reconciler patterns), `broker-arc.md` (launch-bound
-tokens, ARC). Checkpoint CRs reference `SnapshotRef`s and are rejected
+`go-operator-patterns.md` (reconciler patterns), `broker-arc-runners.md`
+(launch-bound tokens, ARC). Checkpoint CRs reference `SnapshotRef`s and are rejected
 on backends without the snapshot capability.
 
 ## 9. Migration path between backends

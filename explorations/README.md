@@ -22,7 +22,7 @@ This catalogue connects the long-form explorations. Their original bodies and st
 
 ## k0s implementation surge (2026-09-16, branch `agents/k0s-implementation-surge`)
 
-New on this branch: [k0s architecture](k0s-architecture.md), [Go operator patterns](go-operator-patterns.md), [Nix k0s packaging](nix-k0s-packaging.md), [Rust-Go contract](rust-go-contract.md), [fleet CRD design](fleet-crd-design.md), [broker and ARC runners](broker-arc-runners.md), [CubeSandbox deep dive](cubesandbox.md), [pluggable backends](pluggable-backends.md), [k0s milestones](k0s-milestones.md), [Elixir verdict](elixir-verdict.md). Cross-cutting maps from the surge: workstation composition, Yggdrasil mapping, and storage mapping are being folded in as follow-ups; the control-plane sketch and comparison above remain the entry points.
+New on this branch: [k0s architecture](k0s-architecture.md), [Go operator patterns](go-operator-patterns.md), [Nix k0s packaging](nix-k0s-packaging.md), [Rust-Go contract](rust-go-contract.md), [fleet CRD design](fleet-crd-design.md), [broker and ARC runners](broker-arc-runners.md), [CubeSandbox deep dive](cubesandbox.md), [pluggable backends](pluggable-backends.md), [k0s milestones](k0s-milestones.md), [Elixir verdict](elixir-verdict.md), [threat model and fault plan](fleet-threat-fault.md), [fleet options decision](k0s-fleet-decision.md). Cross-cutting maps from the surge: workstation composition, Yggdrasil mapping, and storage mapping are being folded in as follow-ups; the control-plane sketch and comparison above remain the entry points.
 
 ## how the threads connect
 
