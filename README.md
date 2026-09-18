@@ -23,6 +23,7 @@ Explore alternatives, make assumptions explicit, and leave enough evidence for t
 | [Compartmentalized NixOS workstation](explorations/compartmentalized-nixos-architecture-seed.md) | Can isolated application environments still feel like one coherent desktop? |
 | [Compartmentalized NixOS enablement](explorations/compartmentalized-nixos-enablement-roadmap.md) | Which runtime, graphics, firmware and policy integrations turn the workstation sketch into testable building blocks? |
 | [Shared Nix store fabric](explorations/shared-nix-store-microvm-fabric.md) | How much immutable state can a microVM fleet share without sharing authority or mutable state? |
+| [Microsandbox storage and memory enablement](explorations/microsandbox-storage-memory-enablement.md) | Which CoW, KSM and reclamation primitives already exist, and what must reach Workestrate to use them safely? |
 | [Workestrate testing philosophy](explorations/workestrate-testing-philosophy.md) | How do we explore a stateful system's failures instead of merely testing its happy paths? |
 | [Yggdrasil: agent-directed branching](explorations/yggdrasil.md) | Can an agent revisit an earlier world while retaining useful lessons from the futures it explored? |
 | [A continual RLM on DeepSeek Harness](explorations/continual-rlm-on-deepseek-harness.md) | What would a Prime-style recursive, continually improving agent look like on DSH's plugin architecture? |
