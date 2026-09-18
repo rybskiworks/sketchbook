@@ -27,6 +27,7 @@ Explore alternatives, make assumptions explicit, and leave enough evidence for t
 | [Workestrate testing philosophy](explorations/workestrate-testing-philosophy.md) | How do we explore a stateful system's failures instead of merely testing its happy paths? |
 | [Yggdrasil: agent-directed branching](explorations/yggdrasil.md) | Can an agent revisit an earlier world while retaining useful lessons from the futures it explored? |
 | [A continual RLM on DeepSeek Harness](explorations/continual-rlm-on-deepseek-harness.md) | What would a Prime-style recursive, continually improving agent look like on DSH's plugin architecture? |
+| [Local agentic engineering control plane](explorations/local-agentic-engineering-control-plane.md) | Can one mainframe agent coordinate substantial isolated work and forge-neutral, evidence-driven local CI? |
 | [Workestrate Kubernetes control plane](explorations/workestrate-kubernetes-control-plane.md) | Can a k0s-backed control surface manage local and remote workload lifecycle, safe recovery and bounded branching without replacing the runtime? |
 
 The [reading guide](explorations/README.md) connects these threads. The [issue tracker](https://github.com/rybskiworks/sketchbook/issues) holds questions that have not become notes yet.

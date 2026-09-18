@@ -22,6 +22,8 @@ This catalogue connects the long-form explorations. Their original bodies and st
 
 **Start with lifecycle and orchestration:** [Workestrate Kubernetes control plane](workestrate-kubernetes-control-plane.md) is a discovery PRD for a Go adapter, with k0s as the reference deployment. It connects local NixOS compartments and remote runtime hosts through declarative lifecycle, explicit recovery modes, bounded agent spawning and capability-gated branching. It distinguishes CRD reconciliation from Pod scheduling and CRI, and keeps storage CoW, RAM CoW and host-owned KSM separate.
 
+**Start with engineering coordination:** [Local agentic engineering control plane](local-agentic-engineering-control-plane.md) proposes one human-facing mainframe coordinating durable domain agents and substantial isolated workloads. It connects selective context access and peer handoff to forge-neutral candidates, progressive deterministic and agentic E2E CI, warm Nix baselines, evidence publication and bounded authority. The Workestrate integration investigation is [#66](https://github.com/rybskiworks/workestrate/issues/66).
+
 ## how the threads connect
 
 The workstation sketch describes a possible consumer of isolation and orchestration. Its enablement roadmap identifies implementation seams and qualification gates without making the architecture an accepted product specification. The store sketch investigates one part of making many isolated workloads economical. The testing sketch asks how to establish that lifecycle, policy, persistence, and recovery behave correctly. Yggdrasil investigates agent-directed use of those primitives while retaining what previous attempts learned.
@@ -29,6 +31,8 @@ The workstation sketch describes a possible consumer of isolation and orchestrat
 The storage/memory roadmap turns selected questions into component-owned implementation work without making live-memory forks or KSM prerequisites for storage sharing. It does not replace the broader store-lifetime or branching-capability investigations.
 
 The continual-RLM sketch investigates a possible agent substrate and reusable knowledge layer. Yggdrasil could add execution-world branching to that substrate, but persistent Python, conversational forks and VM checkpoints remain different capabilities. Neither exploration assumes an implemented Workestrate adapter.
+
+The engineering-control-plane sketch is a consumer above those boundaries: it owns goals, task routing, CI plans and candidate evidence rather than a new hypervisor or model runtime. Its optional k0s integration reuses the lifecycle investigation in [sketchbook PR #32](https://github.com/rybskiworks/sketchbook/pull/32) and [Workestrate #44](https://github.com/rybskiworks/workestrate/issues/44). The first useful local loop does not require Kubernetes, complete RAM forks or KSM.
 
 The Kubernetes control-plane PRD investigates a common lifecycle interface above those runtime mechanisms. It can serve the workstation and store fabric without owning their desktop or storage implementations, and can expose execution operations to Yggdrasil without owning its learning strategy. Recovery never implies undoing external effects or restoring old authority. Repository placement and deeper Kubernetes integration remain discovery decisions.
 
