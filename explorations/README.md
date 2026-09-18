@@ -20,6 +20,8 @@ This catalogue connects the long-form explorations. Their original bodies and st
 
 **Start with the agent runtime:** [A continual RLM on DeepSeek Harness](continual-rlm-on-deepseek-harness.md) compares pinned Pi, Prime Agent, DSH and an existing continual-harness plugin. It proposes native composition for persistent Python, recursive children and evidence-backed artifacts while keeping authority, knowledge and recovery boundaries distinct.
 
+**Start with lifecycle and orchestration:** [Workestrate Kubernetes control plane](workestrate-kubernetes-control-plane.md) is a discovery PRD for a Go adapter, with k0s as the reference deployment. It connects local NixOS compartments and remote runtime hosts through declarative lifecycle, explicit recovery modes, bounded agent spawning and capability-gated branching. It distinguishes CRD reconciliation from Pod scheduling and CRI, and keeps storage CoW, RAM CoW and host-owned KSM separate.
+
 ## how the threads connect
 
 The workstation sketch describes a possible consumer of isolation and orchestration. Its enablement roadmap identifies implementation seams and qualification gates without making the architecture an accepted product specification. The store sketch investigates one part of making many isolated workloads economical. The testing sketch asks how to establish that lifecycle, policy, persistence, and recovery behave correctly. Yggdrasil investigates agent-directed use of those primitives while retaining what previous attempts learned.
@@ -27,6 +29,8 @@ The workstation sketch describes a possible consumer of isolation and orchestrat
 The storage/memory roadmap turns selected questions into component-owned implementation work without making live-memory forks or KSM prerequisites for storage sharing. It does not replace the broader store-lifetime or branching-capability investigations.
 
 The continual-RLM sketch investigates a possible agent substrate and reusable knowledge layer. Yggdrasil could add execution-world branching to that substrate, but persistent Python, conversational forks and VM checkpoints remain different capabilities. Neither exploration assumes an implemented Workestrate adapter.
+
+The Kubernetes control-plane PRD investigates a common lifecycle interface above those runtime mechanisms. It can serve the workstation and store fabric without owning their desktop or storage implementations, and can expose execution operations to Yggdrasil without owning its learning strategy. Recovery never implies undoing external effects or restoring old authority. Repository placement and deeper Kubernetes integration remain discovery decisions.
 
 They are related investigations, not a single approved architecture. Shared vocabulary should make comparisons easier without forcing every idea into Workestrate.
 
