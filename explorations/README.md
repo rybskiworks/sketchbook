@@ -8,6 +8,8 @@ This catalogue connects the long-form explorations. Their original bodies and st
 
 **Start with the user experience:** [Compartmentalized NixOS workstation](compartmentalized-nixos-architecture-seed.md) explores a NixOS configuration / flake with isolated applications and a coherent desktop. It is a separate system concept that might reuse Workestrate, not a proposal to make Workestrate an operating system.
 
+**Start with the implementation gaps:** [Compartmentalized NixOS enablement](compartmentalized-nixos-enablement-roadmap.md) traces the consumed Microsandbox, libkrun, firmware and tooling sources, identifies relevant upstream graphics proposals, and maps missing integration to testable work packages and issues. It distinguishes existing mechanisms from unqualified desktop, authorization and restore capabilities.
+
 **Start with the infrastructure:** [Shared Nix store fabric](shared-nix-store-microvm-fabric.md) explores immutable store generations, private writable overlays, build/cache placement, storage CoW, and memory-sharing options for dense microVM fleets. These mechanisms need distinct capability and correctness contracts.
 
 **Start with the evidence:** [Workestrate testing philosophy](workestrate-testing-philosophy.md) explores properties, independent observers, generated histories, fault injection, replay, and minimization. It is a testing direction, not a requirement to adopt Antithesis or deterministic hypervisor execution.
@@ -18,7 +20,7 @@ This catalogue connects the long-form explorations. Their original bodies and st
 
 ## how the threads connect
 
-The workstation sketch describes a possible consumer of isolation and orchestration. The store sketch investigates one part of making many isolated workloads economical. The testing sketch asks how to establish that lifecycle, policy, persistence, and recovery behave correctly. Yggdrasil investigates agent-directed use of those primitives while retaining what previous attempts learned.
+The workstation sketch describes a possible consumer of isolation and orchestration. Its enablement roadmap identifies implementation seams and qualification gates without making the architecture an accepted product specification. The store sketch investigates one part of making many isolated workloads economical. The testing sketch asks how to establish that lifecycle, policy, persistence, and recovery behave correctly. Yggdrasil investigates agent-directed use of those primitives while retaining what previous attempts learned.
 
 The continual-RLM sketch investigates a possible agent substrate and reusable knowledge layer. Yggdrasil could add execution-world branching to that substrate, but persistent Python, conversational forks and VM checkpoints remain different capabilities. Neither exploration assumes an implemented Workestrate adapter.
 
